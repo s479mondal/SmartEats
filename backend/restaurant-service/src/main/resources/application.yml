@@ -1,0 +1,17 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: restaurant-service
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/smarteats}
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  cache:
+    type: redis
+    redis:
+      time-to-live: 600000 # Cache TTL set to 10 minutes in milliseconds
+      cache-null-values: false

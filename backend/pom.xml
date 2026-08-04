@@ -29,6 +29,7 @@
         <module>common-library</module>
         <module>auth-service</module>
         <module>api-gateway</module>
+        <module>restaurant-service</module>
     </modules>
 
     <dependencyManagement>
