@@ -1,0 +1,16 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: auth-service
+  data:
+    mongodb:
+      # Connects to Atlas via MONGODB_URI env variable, defaults to local
+      uri: ${MONGODB_URI:mongodb://localhost:27017/smarteats}
+
+# JWT Configuration
+jwt:
+  # Base64-encoded key (at least 256 bits). Under production, this must be loaded from env/secrets.
+  secret: ${JWT_SECRET:dGhpcy1pcy1hLXNlY3JldC1rZXktZm9yLXNtYXJ0ZWF0cy1iYWNrZW5kLXByb2plY3QtbWNhLWRpc3NlcnRhdGlvbg==}
+  expiration: 86400000 # 24 Hours in milliseconds
