@@ -12,7 +12,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -20,9 +24,21 @@ import java.util.List;
 public class OrderController {
 
     private final OrderService orderService;
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final RabbitTemplate rabbitTemplate;
 
-    public OrderController(OrderService orderService) {
+    @Value("${rabbitmq.exchange}")
+    private String exchange;
+
+    @Value("${rabbitmq.routing-key.order-created}")
+    private String orderCreatedRoutingKey;
+
+    public OrderController(OrderService orderService,
+                           RedisTemplate<String, Object> redisTemplate,
+                           RabbitTemplate rabbitTemplate) {
         this.orderService = orderService;
+        this.redisTemplate = redisTemplate;
+        this.rabbitTemplate = rabbitTemplate;
     }
 
     @PostMapping("/cart")
@@ -96,5 +112,26 @@ public class OrderController {
         if (rolesHeader == null || (!rolesHeader.contains(requiredRole) && !rolesHeader.contains("ADMIN"))) {
             throw new UnauthorizedException("Access Denied: You do not possess the required privilege " + requiredRole);
         }
+    }
+
+    @GetMapping("/cache/test")
+    public ResponseEntity<ApiResponse<String>> testCache() {
+        String testKey = "test-cache-key";
+        String testVal = "Hello Redis";
+        redisTemplate.opsForValue().set(testKey, testVal);
+        String retrieved = (String) redisTemplate.opsForValue().get(testKey);
+        return ResponseEntity.ok(ApiResponse.success(retrieved, "Redis Connection Test Success!"));
+    }
+
+    @PostMapping("/rabbitmq/test")
+    public ResponseEntity<ApiResponse<String>> testRabbitMQ(@RequestParam String message) {
+        Map<String, Object> testEvent = Map.of(
+                "orderId", "test-order-id-12345",
+                "customerEmail", "customer@smarteats.com",
+                "totalAmount", 19.99,
+                "message", message
+        );
+        rabbitTemplate.convertAndSend(exchange, orderCreatedRoutingKey, testEvent);
+        return ResponseEntity.ok(ApiResponse.success("Sent message: '" + message + "' to exchange: '" + exchange + "' with routing key: '" + orderCreatedRoutingKey + "'"));
     }
 }

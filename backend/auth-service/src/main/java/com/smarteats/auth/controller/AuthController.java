@@ -50,4 +50,10 @@ public class AuthController {
                     .body(ApiResponse.error("Token is invalid or expired"));
         }
     }
+
+    @GetMapping("/db/test")
+    public ResponseEntity<ApiResponse<String>> testDb() {
+        String result = authService.testDatabaseConnection();
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
 }

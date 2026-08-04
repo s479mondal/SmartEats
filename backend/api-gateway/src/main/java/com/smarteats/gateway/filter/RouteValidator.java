@@ -15,7 +15,9 @@ public class RouteValidator {
             "/api/auth/validate",
             "/v3/api-docs",
             "/swagger-ui",
-            "/swagger-ui.html"
+            "/swagger-ui.html",
+            "/health",
+            "/test"
     );
 
     public Predicate<ServerHttpRequest> isSecured =

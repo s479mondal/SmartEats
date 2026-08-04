@@ -10,4 +10,5 @@ public interface AuthService {
     AuthResponse login(LoginRequest request);
     boolean validateToken(String token);
     UserDto getUserByEmail(String email);
+    String testDatabaseConnection();
 }

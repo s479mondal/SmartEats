@@ -93,6 +93,23 @@ public class AuthServiceImpl implements AuthService {
         return mapToDto(user);
     }
 
+    @Override
+    public String testDatabaseConnection() {
+        String testEmail = "db-test@smarteats.com";
+        userRepository.findByEmail(testEmail).ifPresent(userRepository::delete);
+        
+        User testUser = User.builder()
+                .name("Database Connection Test User")
+                .email(testEmail)
+                .build();
+        
+        User saved = userRepository.save(testUser);
+        User retrieved = userRepository.findByEmail(testEmail)
+                .orElseThrow(() -> new RuntimeException("Database test failed to retrieve saved user!"));
+        
+        return "MongoDB Connection Test Success! Inserted and retrieved test document with ID: " + retrieved.getId();
+    }
+
     private UserDto mapToDto(User user) {
         return UserDto.builder()
                 .id(user.getId())
