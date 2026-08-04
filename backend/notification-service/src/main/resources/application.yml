@@ -1,0 +1,28 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: notification-service
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/smarteats}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+# RabbitMQ configuration constants
+rabbitmq:
+  exchange: smarteats.order.exchange
+  queue:
+    order-created: smarteats.notification.order-created.queue
+    restaurant-accepted: smarteats.notification.restaurant-accepted.queue
+    delivery-assigned: smarteats.notification.delivery-assigned.queue
+    order-delivered: smarteats.notification.order-delivered.queue
+  routing-key:
+    order-created: order.created
+    restaurant-accepted: restaurant.accepted
+    delivery-assigned: delivery.assigned
+    order-delivered: order.delivered
