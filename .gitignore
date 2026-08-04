@@ -4,8 +4,43 @@
 # Log file
 *.log
 
-# BlueJ files
-*.ctxt
+# Build folders
+target/
+build/
+bin/
+out/
+.gradle/
+
+# Node dependencies
+node_modules/
+dist/
+.next/
+
+# Python Virtual Environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Environmental configurations
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
