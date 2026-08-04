@@ -1,0 +1,42 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        # Auth Service Route (unsecured)
+        - id: auth-service
+          uri: http://localhost:8081
+          predicates:
+            - Path=/api/auth/**
+
+        # Restaurant Service Route (secured via filter)
+        - id: restaurant-service
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/restaurants/**
+          filters:
+            - AuthenticationFilter
+
+        # Order Service Route (secured via filter)
+        - id: order-service
+          uri: http://localhost:8083
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - AuthenticationFilter
+
+        # Delivery Service Route (secured via filter)
+        - id: delivery-service
+          uri: http://localhost:8084
+          predicates:
+            - Path=/api/deliveries/**
+          filters:
+            - AuthenticationFilter
+
+# JWT secret for token validation at the gateway level (must match auth-service)
+jwt:
+  secret: ${JWT_SECRET:dGhpcy1pcy1hLXNlY3JldC1rZXktZm9yLXNtYXJ0ZWF0cy1iYWNrZW5kLXByb2plY3QtbWNhLWRpc3NlcnRhdGlvbg==}
