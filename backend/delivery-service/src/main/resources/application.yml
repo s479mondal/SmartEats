@@ -1,0 +1,26 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: delivery-service
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/smarteats}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+# RabbitMQ configuration constants
+rabbitmq:
+  exchange: smarteats.order.exchange
+  queue:
+    restaurant-accepted: smarteats.restaurant.accepted.queue
+    delivery-assigned: smarteats.delivery.assigned.queue
+    order-delivered: smarteats.order.delivered.queue
+  routing-key:
+    restaurant-accepted: restaurant.accepted
+    delivery-assigned: delivery.assigned
+    order-delivered: order.delivered
