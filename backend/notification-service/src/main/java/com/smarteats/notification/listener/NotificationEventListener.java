@@ -2,7 +2,7 @@ package com.smarteats.notification.listener;
 
 import com.smarteats.notification.service.NotificationService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -17,9 +17,9 @@ public class NotificationEventListener {
         this.notificationService = notificationService;
     }
 
-    @RabbitListener(queues = "${rabbitmq.queue.order-created}")
+    @KafkaListener(topics = "${kafka.topic.order-created:smarteats.order.created}", groupId = "notification-group")
     public void handleOrderCreatedEvent(Map<String, Object> event) {
-        log.info("Received OrderCreated event in notification-service: {}", event);
+        log.info("Received OrderCreated event from Kafka in notification-service: {}", event);
         try {
             String orderId = (String) event.get("orderId");
             String customerEmail = (String) event.get("customerEmail");
@@ -32,23 +32,9 @@ public class NotificationEventListener {
         }
     }
 
-    @RabbitListener(queues = "${rabbitmq.queue.restaurant-accepted}")
-    public void handleRestaurantAcceptedEvent(String orderId) {
-        log.info("Received RestaurantAccepted event in notification-service for order: {}", orderId);
-        try {
-            // In a production system, we'd fetch the order details to get customer email.
-            // For foundation purposes, we notify a simulated customer or use orderId to represent recipient email for demonstration.
-            String customerEmail = "customer@smarteats.com"; 
-            String msg = String.format("Good news! The restaurant has accepted your order #%s and is preparing it.", orderId);
-            notificationService.sendNotification(customerEmail, msg, orderId, "RESTAURANT_ACCEPTED");
-        } catch (Exception e) {
-            log.error("Error processing RestaurantAccepted event", e);
-        }
-    }
-
-    @RabbitListener(queues = "${rabbitmq.queue.delivery-assigned}")
+    @KafkaListener(topics = "${kafka.topic.delivery-assigned:smarteats.delivery.assigned}", groupId = "notification-group")
     public void handleDeliveryAssignedEvent(String orderId) {
-        log.info("Received DeliveryAssigned event in notification-service for order: {}", orderId);
+        log.info("Received DeliveryAssigned event from Kafka in notification-service for order: {}", orderId);
         try {
             String customerEmail = "customer@smarteats.com";
             String msg = String.format("A delivery partner has been assigned to pick up your order #%s.", orderId);
@@ -58,9 +44,9 @@ public class NotificationEventListener {
         }
     }
 
-    @RabbitListener(queues = "${rabbitmq.queue.order-delivered}")
+    @KafkaListener(topics = "${kafka.topic.order-delivered:smarteats.order.delivered}", groupId = "notification-group")
     public void handleOrderDeliveredEvent(String orderId) {
-        log.info("Received OrderDelivered event in notification-service for order: {}", orderId);
+        log.info("Received OrderDelivered event from Kafka in notification-service for order: {}", orderId);
         try {
             String customerEmail = "customer@smarteats.com";
             String msg = String.format("Yum! Your order #%s has been successfully delivered. Enjoy your meal!", orderId);

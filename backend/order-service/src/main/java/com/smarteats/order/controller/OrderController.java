@@ -25,20 +25,17 @@ public class OrderController {
 
     private final OrderService orderService;
     private final RedisTemplate<String, Object> redisTemplate;
-    private final RabbitTemplate rabbitTemplate;
+    private final org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate;
 
-    @Value("${rabbitmq.exchange}")
-    private String exchange;
-
-    @Value("${rabbitmq.routing-key.order-created}")
-    private String orderCreatedRoutingKey;
+    @Value("${kafka.topic.order-created:smarteats.order.created}")
+    private String orderCreatedTopic;
 
     public OrderController(OrderService orderService,
                            RedisTemplate<String, Object> redisTemplate,
-                           RabbitTemplate rabbitTemplate) {
+                           org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate) {
         this.orderService = orderService;
         this.redisTemplate = redisTemplate;
-        this.rabbitTemplate = rabbitTemplate;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     @PostMapping("/cart")
@@ -123,15 +120,15 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(retrieved, "Redis Connection Test Success!"));
     }
 
-    @PostMapping("/rabbitmq/test")
-    public ResponseEntity<ApiResponse<String>> testRabbitMQ(@RequestParam String message) {
+    @PostMapping("/kafka/test")
+    public ResponseEntity<ApiResponse<String>> testKafka(@RequestParam String message) {
         Map<String, Object> testEvent = Map.of(
                 "orderId", "test-order-id-12345",
                 "customerEmail", "customer@smarteats.com",
                 "totalAmount", 19.99,
                 "message", message
         );
-        rabbitTemplate.convertAndSend(exchange, orderCreatedRoutingKey, testEvent);
-        return ResponseEntity.ok(ApiResponse.success("Sent message: '" + message + "' to exchange: '" + exchange + "' with routing key: '" + orderCreatedRoutingKey + "'"));
+        kafkaTemplate.send(orderCreatedTopic, "test-order-id-12345", testEvent);
+        return ResponseEntity.ok(ApiResponse.success("Sent message: '" + message + "' to topic: '" + orderCreatedTopic + "'"));
     }
 }

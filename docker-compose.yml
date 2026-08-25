@@ -40,16 +40,34 @@ services:
       - smarteats-network
     restart: always
 
-  # Event-Driven Messaging Broker
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: smarteats-rabbitmq
-    ports:
-      - "5672:5672"     # AMQP transport port
-      - "15672:15672"   # Management Web UI Console
+  # Distributed Event Streaming Platform
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: smarteats-zookeeper
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - smarteats-network
+    restart: always
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: smarteats-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     networks:
       - smarteats-network
     restart: always

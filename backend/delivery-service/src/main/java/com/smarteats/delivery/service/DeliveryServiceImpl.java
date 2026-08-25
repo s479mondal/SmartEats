@@ -27,26 +27,23 @@ public class DeliveryServiceImpl implements DeliveryService {
     private final DeliveryRepository deliveryRepository;
     private final DeliveryPartnerRepository partnerRepository;
     private final DeliveryAssignmentStrategy assignmentStrategy;
-    private final RabbitTemplate rabbitTemplate;
+    private final org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate;
 
-    @Value("${rabbitmq.exchange}")
-    private String exchange;
+    @Value("${kafka.topic.delivery-assigned:smarteats.delivery.assigned}")
+    private String deliveryAssignedTopic;
 
-    @Value("${rabbitmq.routing-key.delivery-assigned}")
-    private String deliveryAssignedKey;
-
-    @Value("${rabbitmq.routing-key.order-delivered}")
-    private String orderDeliveredKey;
+    @Value("${kafka.topic.order-delivered:smarteats.order.delivered}")
+    private String orderDeliveredTopic;
 
     // Constructor injection
     public DeliveryServiceImpl(DeliveryRepository deliveryRepository,
                                DeliveryPartnerRepository partnerRepository,
                                DeliveryAssignmentStrategy assignmentStrategy,
-                               RabbitTemplate rabbitTemplate) {
+                               org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate) {
         this.deliveryRepository = deliveryRepository;
         this.partnerRepository = partnerRepository;
         this.assignmentStrategy = assignmentStrategy;
-        this.rabbitTemplate = rabbitTemplate;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     @Override
@@ -113,8 +110,8 @@ public class DeliveryServiceImpl implements DeliveryService {
         partner.setAvailable(false);
         partnerRepository.save(partner);
 
-        // Publish event to RabbitMQ
-        rabbitTemplate.convertAndSend(exchange, deliveryAssignedKey, savedDelivery.getOrderId());
+        // Publish event to Kafka
+        kafkaTemplate.send(deliveryAssignedTopic, savedDelivery.getOrderId(), savedDelivery.getOrderId());
         log.info("Delivery for order {} accepted by rider {}", savedDelivery.getOrderId(), partnerEmail);
 
         return mapToResponse(savedDelivery);
@@ -148,8 +145,8 @@ public class DeliveryServiceImpl implements DeliveryService {
             });
 
             // Publish OrderDelivered event
-            rabbitTemplate.convertAndSend(exchange, orderDeliveredKey, delivery.getOrderId());
-            log.info("Published OrderDelivered event for order: {}", delivery.getOrderId());
+            kafkaTemplate.send(orderDeliveredTopic, delivery.getOrderId(), delivery.getOrderId());
+            log.info("Published OrderDelivered event to Kafka for order: {}", delivery.getOrderId());
         }
 
         return mapToResponse(saved);
@@ -204,9 +201,9 @@ public class DeliveryServiceImpl implements DeliveryService {
             rider.setAvailable(false);
             partnerRepository.save(rider);
 
-            // Publish event
-            rabbitTemplate.convertAndSend(exchange, deliveryAssignedKey, delivery.getOrderId());
-            log.info("Rider auto-assigned. Sent DeliveryAssigned event for order: {}", delivery.getOrderId());
+            // Publish event to Kafka
+            kafkaTemplate.send(deliveryAssignedTopic, delivery.getOrderId(), delivery.getOrderId());
+            log.info("Rider auto-assigned. Sent DeliveryAssigned event to Kafka for order: {}", delivery.getOrderId());
         } else {
             log.warn("No active/available riders found for delivery ID {}. Awaiting manual assignment.", deliveryId);
         }

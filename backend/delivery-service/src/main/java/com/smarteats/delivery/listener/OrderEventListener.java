@@ -2,7 +2,7 @@ package com.smarteats.delivery.listener;
 
 import com.smarteats.delivery.service.DeliveryService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -16,9 +16,9 @@ public class OrderEventListener {
         this.deliveryService = deliveryService;
     }
 
-    @RabbitListener(queues = "${rabbitmq.queue.restaurant-accepted}")
+    @KafkaListener(topics = "${kafka.topic.order-status:smarteats.order.status}", groupId = "delivery-group")
     public void handleRestaurantAcceptedEvent(String orderId) {
-        log.info("Received RestaurantAccepted event for order ID: {}", orderId);
+        log.info("Received RestaurantAccepted event from Kafka for order ID: {}", orderId);
         try {
             // Simulated restaurant and customer emails for foundation setup
             deliveryService.createPendingDelivery(orderId, "mock-restaurant-id", "mock-customer-email");

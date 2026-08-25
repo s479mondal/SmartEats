@@ -27,23 +27,23 @@ public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
     private final RedisTemplate<String, Object> redisTemplate;
-    private final RabbitTemplate rabbitTemplate;
+    private final org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate;
 
-    @Value("${rabbitmq.exchange}")
-    private String exchange;
+    @Value("${kafka.topic.order-created:smarteats.order.created}")
+    private String orderCreatedTopic;
 
-    @Value("${rabbitmq.routing-key.order-created}")
-    private String orderCreatedRoutingKey;
+    @Value("${kafka.topic.order-status:smarteats.order.status}")
+    private String orderStatusTopic;
 
     private static final String CART_KEY_PREFIX = "cart:";
 
     // Constructor injection
     public OrderServiceImpl(OrderRepository orderRepository,
                             RedisTemplate<String, Object> redisTemplate,
-                            RabbitTemplate rabbitTemplate) {
+                            org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate) {
         this.orderRepository = orderRepository;
         this.redisTemplate = redisTemplate;
-        this.rabbitTemplate = rabbitTemplate;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     private String getCartKey(String email) {
@@ -137,7 +137,7 @@ public class OrderServiceImpl implements OrderService {
         // Clear cart in Redis
         clearCart(userEmail);
 
-        // Publish OrderCreated event to RabbitMQ
+        // Publish OrderCreated event to Kafka
         OrderCreatedEvent event = OrderCreatedEvent.builder()
                 .orderId(savedOrder.getId())
                 .customerEmail(savedOrder.getCustomerEmail())
@@ -146,8 +146,8 @@ public class OrderServiceImpl implements OrderService {
                 .items(savedOrder.getItems())
                 .build();
 
-        rabbitTemplate.convertAndSend(exchange, orderCreatedRoutingKey, event);
-        log.info("Published OrderCreated event to RabbitMQ for order ID: {}", savedOrder.getId());
+        kafkaTemplate.send(orderCreatedTopic, savedOrder.getId(), event);
+        log.info("Published OrderCreated event to Kafka for order ID: {}", savedOrder.getId());
 
         return mapToResponse(savedOrder);
     }
@@ -196,10 +196,10 @@ public class OrderServiceImpl implements OrderService {
         Order savedOrder = orderRepository.save(order);
         log.info("Order {} status updated to {}", orderId, newStatus);
 
-        // If restaurant accepts the order, publish RestaurantAccepted event
+        // If restaurant accepts the order, publish event to Kafka
         if (newStatus == OrderStatus.ACCEPTED) {
-            rabbitTemplate.convertAndSend(exchange, "restaurant.accepted", savedOrder.getId());
-            log.info("Published RestaurantAccepted event for order ID: {}", orderId);
+            kafkaTemplate.send(orderStatusTopic, orderId, savedOrder.getId());
+            log.info("Published RestaurantAccepted event to Kafka for order ID: {}", orderId);
         }
 
         return mapToResponse(savedOrder);

@@ -7,22 +7,18 @@ spring:
   data:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017/smarteats}
-  rabbitmq:
-    host: ${RABBITMQ_HOST:localhost}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:guest}
-    password: ${RABBITMQ_PASSWORD:guest}
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
+    consumer:
+      group-id: notification-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
 
-# RabbitMQ configuration constants
-rabbitmq:
-  exchange: smarteats.order.exchange
-  queue:
-    order-created: smarteats.notification.order-created.queue
-    restaurant-accepted: smarteats.notification.restaurant-accepted.queue
-    delivery-assigned: smarteats.notification.delivery-assigned.queue
-    order-delivered: smarteats.notification.order-delivered.queue
-  routing-key:
-    order-created: order.created
-    restaurant-accepted: restaurant.accepted
-    delivery-assigned: delivery.assigned
-    order-delivered: order.delivered
+kafka:
+  topic:
+    order-created: smarteats.order.created
+    delivery-assigned: smarteats.delivery.assigned
+    order-delivered: smarteats.order.delivered
