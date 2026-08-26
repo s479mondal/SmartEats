@@ -16,10 +16,12 @@ class WasteMitigationEngine:
         # High surplus near end of operating day -> Suggest Dynamic Discount or NGO Donation
         if hours_left_in_day <= 3 and surplus_count > 5:
             discount_pct = 35.0
-            discounted_price = round(original_price * (1 - discount_pct / 100.0), 2)
+            discounted_price = round(original_price * (1 - discount_pct / 100.0))
             return {
                 "surplusDetected": True,
                 "surplusUnits": surplus_count,
+                "currency": "INR",
+                "currencySymbol": "₹",
                 "recommendedAction": "DYNAMIC_DISCOUNT_AND_NGO_ROUTING",
                 "discountPercent": discount_pct,
                 "discountedPrice": discounted_price,
@@ -28,10 +30,12 @@ class WasteMitigationEngine:
             }
         else:
             discount_pct = 20.0
-            discounted_price = round(original_price * (1 - discount_pct / 100.0), 2)
+            discounted_price = round(original_price * (1 - discount_pct / 100.0))
             return {
                 "surplusDetected": True,
                 "surplusUnits": surplus_count,
+                "currency": "INR",
+                "currencySymbol": "₹",
                 "recommendedAction": "DYNAMIC_DISCOUNT",
                 "discountPercent": discount_pct,
                 "discountedPrice": discounted_price,

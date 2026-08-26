@@ -34,6 +34,11 @@ public class User {
     @Builder.Default
     private Set<Role> roles = new HashSet<>();
 
+    @Builder.Default
+    private boolean approved = true; // Auto-approved for CUSTOMER, false for RESTAURANT_OWNER & DELIVERY_PARTNER
+
+    private String status; // PENDING_APPROVAL, APPROVED, REJECTED
+
     // OAuth2 configuration (optional provider fields)
     private String oauth2Provider;
     private String oauth2Id;

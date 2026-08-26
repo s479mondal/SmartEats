@@ -6,7 +6,7 @@ spring:
     name: restaurant-service
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb://localhost:27017/smarteats}
+      uri: ${MONGODB_URI:mongodb+srv://soumenmondal741150_db_user:5r47pqpO9Xb2ITI6@smarteatscluster.02gfkuh.mongodb.net/smarteats_restaurant?retryWrites=true&w=majority}
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}

@@ -1,7 +1,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 
-console.log("Running JS Simulation test for RDSS AI Service Logic...");
+console.log("Running JS Simulation test for RDSS AI Service Logic (INR Currency)...");
 
 // Demand Forecasting Mock Test
 function predict24h(restaurantId) {
@@ -19,15 +19,15 @@ function evaluateSurplus(inventoryCount, velocity, hoursLeft, originalPrice) {
   const surplus = Math.max(0, inventoryCount - expected);
   if (hoursLeft <= 3 && surplus > 5) {
     const discount = 35.0;
-    return { surplusDetected: true, discountPercent: discount, discountedPrice: +(originalPrice * 0.65).toFixed(2), action: "DYNAMIC_DISCOUNT_AND_NGO_ROUTING" };
+    return { surplusDetected: true, discountPercent: discount, discountedPrice: Math.round(originalPrice * 0.65), currency: "INR", currencySymbol: "₹", action: "DYNAMIC_DISCOUNT_AND_NGO_ROUTING" };
   }
-  return { surplusDetected: false, discountPercent: 0, discountedPrice: originalPrice };
+  return { surplusDetected: false, discountPercent: 0, discountedPrice: originalPrice, currency: "INR", currencySymbol: "₹" };
 }
 
 const forecastRes = predict24h("rest-101");
 console.log("Forecast Test Passed: 24h Total Predicted Meals =", forecastRes.totalMeals);
 
-const wasteRes = evaluateSurplus(10, 1.0, 2.0, 18.0);
-console.log("Waste Mitigation Test Passed: Discounted Price = $" + wasteRes.discountedPrice + ", Action =", wasteRes.action);
+const wasteRes = evaluateSurplus(10, 1.0, 2.0, 450.0);
+console.log("Waste Mitigation Test Passed: Discounted Price = ₹" + wasteRes.discountedPrice + ", Action =", wasteRes.action);
 
 console.log("ALL RDSS AI TESTS PASSED! 🚀");

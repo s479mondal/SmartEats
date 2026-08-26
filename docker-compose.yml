@@ -72,6 +72,20 @@ services:
       - smarteats-network
     restart: always
 
+  # React Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: smarteats-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8080
+    networks:
+      - smarteats-network
+    restart: always
+
 volumes:
   mongo-data:
   redis-data:

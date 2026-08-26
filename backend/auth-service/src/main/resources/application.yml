@@ -6,8 +6,7 @@ spring:
     name: auth-service
   data:
     mongodb:
-      # Connects to Atlas via MONGODB_URI env variable, defaults to local
-      uri: ${MONGODB_URI:mongodb://localhost:27017/smarteats}
+      uri: ${MONGODB_URI:mongodb+srv://soumenmondal741150_db_user:5r47pqpO9Xb2ITI6@smarteatscluster.02gfkuh.mongodb.net/smarteats_auth?retryWrites=true&w=majority}
 
 # JWT Configuration
 jwt:

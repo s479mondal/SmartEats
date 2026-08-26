@@ -42,15 +42,21 @@ public class AuthServiceImpl implements AuthService {
             throw new BadRequestException("Email is already registered!");
         }
 
+        boolean requiresApproval = request.getRoles().contains(com.smarteats.auth.entity.Role.RESTAURANT_OWNER) ||
+                                  request.getRoles().contains(com.smarteats.auth.entity.Role.DELIVERY_PARTNER) ||
+                                  request.getRoles().contains(com.smarteats.auth.entity.Role.NGO);
+
         // Base user mapping
         User.UserBuilder userBuilder = User.builder()
                 .name(request.getName())
                 .email(request.getEmail())
                 .roles(request.getRoles())
+                .approved(!requiresApproval)
+                .status(requiresApproval ? "PENDING_APPROVAL" : "APPROVED")
                 .oauth2Provider(request.getOauth2Provider())
                 .oauth2Id(request.getOauth2Id());
 
-        // Password encoding if password is present (e.g. for standard login, not OAuth2-only)
+        // Password encoding if password is present
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             userBuilder.password(passwordEncoder.encode(request.getPassword()));
         }
@@ -63,12 +69,17 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthResponse login(LoginRequest request) {
         try {
+            User user = userRepository.findByEmail(request.getEmail())
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + request.getEmail()));
+
+            // Verify if account requires admin approval
+            if (!user.isApproved()) {
+                throw new UnauthorizedException("Account approval is pending from Admin! Please wait for verification.");
+            }
+
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
-
-            User user = userRepository.findByEmail(request.getEmail())
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + request.getEmail()));
 
             String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRoles());
 
@@ -116,6 +127,8 @@ public class AuthServiceImpl implements AuthService {
                 .name(user.getName())
                 .email(user.getEmail())
                 .roles(user.getRoles())
+                .approved(user.isApproved())
+                .status(user.getStatus())
                 .build();
     }
 }

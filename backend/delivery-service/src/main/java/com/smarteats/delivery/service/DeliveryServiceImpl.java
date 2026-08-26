@@ -12,7 +12,6 @@ import com.smarteats.delivery.repository.DeliveryPartnerRepository;
 import com.smarteats.delivery.repository.DeliveryRepository;
 import com.smarteats.delivery.strategy.DeliveryAssignmentStrategy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
