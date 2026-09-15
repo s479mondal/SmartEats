@@ -1,0 +1,32 @@
+[
+  {
+    "_id": "item_502",
+    "restaurantId": "rest_101",
+    "name": "Artisan Truffle Burger",
+    "description": "Double wagyu patty with black truffle aioli on brioche",
+    "price": 299,
+    "category": "BURGER",
+    "available": true,
+    "isSurplus": false
+  },
+  {
+    "_id": "item_501",
+    "restaurantId": "rest_101",
+    "name": "Woodfired Margherita",
+    "description": "Fresh mozzarella, basil & San Marzano tomatoes",
+    "price": 292,
+    "category": "PIZZA",
+    "available": true,
+    "isSurplus": true
+  },
+  {
+    "_id": "item_503",
+    "restaurantId": "rest_102",
+    "name": "Paneer Biryani Handi",
+    "description": "Fragrant basmati rice dum cooked with paneer tikka",
+    "price": 190,
+    "category": "MAIN_COURSE",
+    "available": true,
+    "isSurplus": true
+  }
+]

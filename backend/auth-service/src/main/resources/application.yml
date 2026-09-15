@@ -6,7 +6,19 @@ spring:
     name: auth-service
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb+srv://soumenmondal741150_db_user:5r47pqpO9Xb2ITI6@smarteatscluster.02gfkuh.mongodb.net/smarteats_auth?retryWrites=true&w=majority}
+      uri: ${MONGODB_URI_AUTH}
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+kafka:
+  topic:
+    restaurant-registered: smarteats.auth.restaurant-registered
+    driver-registered: smarteats.auth.driver-registered
+    ngo-registered: smarteats.auth.ngo-registered
+    status-updated: smarteats.auth.status-updated
 
 # JWT Configuration
 jwt:

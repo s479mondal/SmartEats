@@ -1,6 +1,13 @@
 import { MongoClient } from 'mongodb';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const uri = 'mongodb://smarteats-mongodb:27017';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const env = fs.readFileSync(path.resolve(__dirname, '../.env'), 'utf8');
+const match = env.match(/MONGODB_URI_AUTH=(.+)/) || env.match(/MONGODB_URI=(.+)/);
+if (!match) throw new Error('No MONGODB_URI_AUTH found in .env');
+const uri = match[1].trim();
 const client = new MongoClient(uri);
 
 async function updatePasswords() {

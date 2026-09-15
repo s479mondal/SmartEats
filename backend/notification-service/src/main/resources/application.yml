@@ -6,16 +6,14 @@ spring:
     name: notification-service
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb+srv://soumenmondal741150_db_user:5r47pqpO9Xb2ITI6@smarteatscluster.02gfkuh.mongodb.net/smarteats_notification?retryWrites=true&w=majority}
+      uri: ${MONGODB_URI_NOTIFICATION}
   kafka:
     bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
     consumer:
       group-id: notification-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 kafka:
   topic:

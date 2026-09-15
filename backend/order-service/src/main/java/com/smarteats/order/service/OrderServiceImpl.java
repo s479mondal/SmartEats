@@ -1,6 +1,7 @@
 package com.smarteats.order.service;
 
 import com.smarteats.common.exception.BadRequestException;
+import com.smarteats.common.exception.ForbiddenException;
 import com.smarteats.common.exception.ResourceNotFoundException;
 import com.smarteats.common.exception.UnauthorizedException;
 import com.smarteats.order.dto.CartDto;
@@ -159,6 +160,23 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    public OrderResponse getOrderById(String orderId, String userEmail, String roles) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with ID: " + orderId));
+
+        boolean isAdmin = roles != null && (roles.contains("ADMIN") || roles.contains("ROLE_ADMIN"));
+        boolean isOwner = userEmail != null && userEmail.equalsIgnoreCase(order.getCustomerEmail());
+
+        if (!isAdmin && !isOwner) {
+            log.warn("Access Denied (IDOR Prevention): User '{}' with roles '{}' attempted to access order '{}' owned by '{}'",
+                    userEmail, roles, orderId, order.getCustomerEmail());
+            throw new ForbiddenException("Access Denied: You do not have permission to view this order");
+        }
+
+        return mapToResponse(order);
+    }
+
+    @Override
     public List<OrderResponse> getOrdersForCustomer(String userEmail) {
         return orderRepository.findByCustomerEmail(userEmail).stream()
                 .map(this::mapToResponse)
@@ -174,6 +192,103 @@ public class OrderServiceImpl implements OrderService {
                 .collect(Collectors.toList());
     }
 
+    @Value("${kafka.topic.order-accepted:smarteats.order.accepted}")
+    private String orderAcceptedTopic;
+
+    @Value("${kafka.topic.order-ready:smarteats.order.ready}")
+    private String orderReadyTopic;
+
+    @Override
+    public List<OrderResponse> getMyRestaurantOrders(String ownerEmail) {
+        log.info("Fetching orders for restaurant owner {}", ownerEmail);
+        return orderRepository.findAll().stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public OrderResponse getMyRestaurantOrderById(String orderId, String ownerEmail) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with ID: " + orderId));
+        return mapToResponse(order);
+    }
+
+    @Override
+    public OrderResponse acceptOrder(String orderId, String ownerEmail) {
+        return transitionOrderStatus(orderId, OrderStatus.ACCEPTED, ownerEmail);
+    }
+
+    @Override
+    public OrderResponse rejectOrder(String orderId, String ownerEmail) {
+        return transitionOrderStatus(orderId, OrderStatus.REJECTED, ownerEmail);
+    }
+
+    @Override
+    public OrderResponse preparingOrder(String orderId, String ownerEmail) {
+        return transitionOrderStatus(orderId, OrderStatus.PREPARING, ownerEmail);
+    }
+
+    @Override
+    public OrderResponse readyOrder(String orderId, String ownerEmail) {
+        return transitionOrderStatus(orderId, OrderStatus.READY, ownerEmail);
+    }
+
+    private OrderResponse transitionOrderStatus(String orderId, OrderStatus targetStatus, String ownerEmail) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with ID: " + orderId));
+
+        OrderStatus currentStatus = order.getStatus();
+        validateStateTransition(currentStatus, targetStatus);
+
+        order.setStatus(targetStatus);
+        Order savedOrder = orderRepository.save(order);
+        log.info("Order {} status transitioned from {} to {} by {}", orderId, currentStatus, targetStatus, ownerEmail);
+
+        // Kafka Event Publishing based on transition
+        if (targetStatus == OrderStatus.ACCEPTED) {
+            com.smarteats.common.event.OrderAcceptedEvent event = com.smarteats.common.event.OrderAcceptedEvent.builder()
+                    .orderId(savedOrder.getId())
+                    .restaurantId(savedOrder.getRestaurantId())
+                    .customerEmail(savedOrder.getCustomerEmail())
+                    .totalAmount(savedOrder.getTotalAmount())
+                    .restaurantLatitude(12.9716)
+                    .restaurantLongitude(77.5946)
+                    .deliveryLatitude(12.9725)
+                    .deliveryLongitude(77.5937)
+                    .createdAt(savedOrder.getCreatedAt() != null ? savedOrder.getCreatedAt().toString() : java.time.LocalDateTime.now().toString())
+                    .build();
+            kafkaTemplate.send(orderAcceptedTopic, orderId, event);
+            log.info("Published OrderAcceptedEvent to Kafka topic '{}' for order ID: {}", orderAcceptedTopic, orderId);
+        } else if (targetStatus == OrderStatus.READY) {
+            kafkaTemplate.send(orderReadyTopic, orderId, mapToResponse(savedOrder));
+            log.info("Published OrderReady event to Kafka topic '{}' for order ID: {}", orderReadyTopic, orderId);
+        }
+
+        return mapToResponse(savedOrder);
+    }
+
+    private void validateStateTransition(OrderStatus current, OrderStatus next) {
+        if (current == OrderStatus.CREATED || current == OrderStatus.NEW) {
+            if (next != OrderStatus.ACCEPTED && next != OrderStatus.REJECTED && next != OrderStatus.CANCELLED) {
+                throw new BadRequestException("Invalid state transition: Cannot change status from " + current + " to " + next + ". Expected ACCEPTED or REJECTED.");
+            }
+        } else if (current == OrderStatus.ACCEPTED) {
+            if (next != OrderStatus.PREPARING && next != OrderStatus.CANCELLED) {
+                throw new BadRequestException("Invalid state transition: Cannot change status from " + current + " to " + next + ". Expected PREPARING.");
+            }
+        } else if (current == OrderStatus.PREPARING) {
+            if (next != OrderStatus.READY && next != OrderStatus.CANCELLED) {
+                throw new BadRequestException("Invalid state transition: Cannot change status from " + current + " to " + next + ". Expected READY.");
+            }
+        } else if (current == OrderStatus.READY) {
+            if (next != OrderStatus.DISPATCHED && next != OrderStatus.DELIVERED) {
+                throw new BadRequestException("Invalid state transition: Order is already READY.");
+            }
+        } else if (current == OrderStatus.REJECTED || current == OrderStatus.CANCELLED) {
+            throw new BadRequestException("Invalid state transition: Cannot modify order in terminal state " + current);
+        }
+    }
+
     @Override
     public OrderResponse updateOrderStatus(String orderId, String status, String userEmail, String roles) {
         Order order = orderRepository.findById(orderId)
@@ -186,21 +301,11 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("Invalid Order Status: " + status);
         }
 
-        // Simple validation: customer can cancel order before restaurant accepts it, restaurant owners can manage preparation
-        if (newStatus == OrderStatus.CANCELLED && !order.getCustomerEmail().equals(userEmail) && !roles.contains("ADMIN") && !roles.contains("RESTAURANT_OWNER")) {
-            throw new UnauthorizedException("You are not authorized to cancel this order!");
-        }
+        validateStateTransition(order.getStatus(), newStatus);
 
         order.setStatus(newStatus);
         Order savedOrder = orderRepository.save(order);
         log.info("Order {} status updated to {}", orderId, newStatus);
-
-        // If restaurant accepts the order, publish event to Kafka
-        if (newStatus == OrderStatus.ACCEPTED) {
-            kafkaTemplate.send(orderStatusTopic, orderId, savedOrder.getId());
-            log.info("Published RestaurantAccepted event to Kafka for order ID: {}", orderId);
-        }
-
         return mapToResponse(savedOrder);
     }
 

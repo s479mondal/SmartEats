@@ -153,25 +153,42 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     public DeliveryResponse createPendingDelivery(String orderId, String restaurantId, String customerEmail) {
+        return createPendingDelivery(orderId, restaurantId, customerEmail, 12.9716, 77.5946, 12.9725, 77.5937);
+    }
+
+    @Override
+    public DeliveryResponse createPendingDelivery(String orderId, String restaurantId, String customerEmail,
+                                                 double restLat, double restLng, double delLat, double delLng) {
         log.info("Creating pending delivery record for order ID: {}", orderId);
-        
-        // Mocking coordinates for simulation (e.g. Bangalore center coordinates)
+
+        // Idempotency check to prevent duplicate delivery creation
+        Optional<Delivery> existing = deliveryRepository.findByOrderId(orderId);
+        if (existing.isPresent()) {
+            log.warn("Delivery record already exists for order ID: {}. Skipping duplicate creation.", orderId);
+            return mapToResponse(existing.get());
+        }
+
+        double finalRestLat = restLat != 0.0 ? restLat : 12.9716;
+        double finalRestLng = restLng != 0.0 ? restLng : 77.5946;
+        double finalDelLat = delLat != 0.0 ? delLat : 12.9725;
+        double finalDelLng = delLng != 0.0 ? delLng : 77.5937;
+
         Delivery delivery = Delivery.builder()
                 .orderId(orderId)
                 .restaurantId(restaurantId)
                 .customerEmail(customerEmail)
                 .status(DeliveryStatus.PENDING)
-                .restaurantLatitude(12.9716)
-                .restaurantLongitude(77.5946)
-                .deliveryLatitude(12.9725)
-                .deliveryLongitude(77.5937)
+                .restaurantLatitude(finalRestLat)
+                .restaurantLongitude(finalRestLng)
+                .deliveryLatitude(finalDelLat)
+                .deliveryLongitude(finalDelLng)
                 .build();
 
         Delivery saved = deliveryRepository.save(delivery);
-        
-        // Asynchronously trigger rider matching
+
+        // Asynchronously trigger rider matching via Haversine strategy
         triggerRiderAssignment(saved.getId());
-        
+
         return mapToResponse(saved);
     }
 

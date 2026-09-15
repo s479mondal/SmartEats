@@ -1,7 +1,15 @@
 import React, { useState } from 'react';
 
 export default function PreferencesPage() {
-  const [preferences, setPreferences] = useState(['Paneer', 'North Indian', 'Healthy', 'Spicy']);
+  const [preferences, setPreferences] = useState(() => {
+    try {
+      const saved = localStorage.getItem('smarteats_preferences');
+      return saved ? JSON.parse(saved) : ['Paneer', 'North Indian', 'Healthy', 'Spicy'];
+    } catch {
+      return ['Paneer', 'North Indian', 'Healthy', 'Spicy'];
+    }
+  });
+  const [msg, setMsg] = useState('');
 
   const availableTags = [
     'Vegetarian', 'Non-Vegetarian', 'Paneer', 'Biryani', 'South Indian', 
@@ -16,6 +24,12 @@ export default function PreferencesPage() {
     }
   };
 
+  const handleSave = () => {
+    localStorage.setItem('smarteats_preferences', JSON.stringify(preferences));
+    setMsg('✅ Food preferences saved! Personalized recommendation engine updated.');
+    setTimeout(() => setMsg(''), 3000);
+  };
+
   return (
     <div style={{ maxWidth: '640px', margin: '0 auto' }}>
       <div className="card" style={{ borderColor: 'rgba(0, 242, 254, 0.4)' }}>
@@ -23,6 +37,12 @@ export default function PreferencesPage() {
         <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
           Select your dietary preferences to personalize AI-driven recommendation rankings and surplus deal alerts.
         </p>
+
+        {msg && (
+          <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', color: 'var(--accent-green)', padding: '0.8rem', borderRadius: '10px', fontSize: '0.85rem', marginBottom: '1.2rem', textAlign: 'center' }}>
+            {msg}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
           {availableTags.map((tag) => {
@@ -38,7 +58,7 @@ export default function PreferencesPage() {
                   padding: '0.6rem 1.2rem',
                   borderRadius: '20px',
                   fontWeight: 700,
-                  fontSize: 0.85 + 'rem',
+                  fontSize: '0.85rem',
                   cursor: 'pointer'
                 }}
               >
@@ -48,7 +68,7 @@ export default function PreferencesPage() {
           })}
         </div>
 
-        <button className="btn-action" onClick={() => alert('Preferences saved successfully! AI recommendation rankings updated.')}>
+        <button className="btn-action" onClick={handleSave}>
           Save Food Preferences
         </button>
       </div>

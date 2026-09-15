@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 
 @Slf4j
@@ -12,18 +13,20 @@ import java.util.Map;
 public class NotificationEventListener {
 
     private final NotificationService notificationService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public NotificationEventListener(NotificationService notificationService) {
         this.notificationService = notificationService;
     }
 
     @KafkaListener(topics = "${kafka.topic.order-created:smarteats.order.created}", groupId = "notification-group")
-    public void handleOrderCreatedEvent(Map<String, Object> event) {
-        log.info("Received OrderCreated event from Kafka in notification-service: {}", event);
+    public void handleOrderCreatedEvent(String payload) {
+        log.info("Received OrderCreated event from Kafka in notification-service: {}", payload);
         try {
-            String orderId = (String) event.get("orderId");
-            String customerEmail = (String) event.get("customerEmail");
-            double amount = (double) event.get("totalAmount");
+            Map<String, Object> event = objectMapper.readValue(payload, Map.class);
+            String orderId = String.valueOf(event.get("orderId"));
+            String customerEmail = String.valueOf(event.get("customerEmail"));
+            double amount = Double.parseDouble(String.valueOf(event.get("totalAmount")));
 
             String msg = String.format("Thank you! Your order #%s of $%.2f was placed successfully.", orderId, amount);
             notificationService.sendNotification(customerEmail, msg, orderId, "ORDER_CREATED");

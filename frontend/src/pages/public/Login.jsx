@@ -17,12 +17,31 @@ export default function Login() {
     try {
       const userObj = await login({ email, password });
       
-      // Redirect based on role returned from backend API
-      if (userObj.role === 'ADMIN') navigate('/admin/dashboard');
-      else if (userObj.role === 'RESTAURANT') navigate('/restaurant/dashboard');
-      else if (userObj.role === 'DELIVERY_PARTNER') navigate('/delivery/dashboard');
-      else if (userObj.role === 'NGO') navigate('/ngo/dashboard');
-      else navigate('/customer/dashboard');
+      const role = userObj.role;
+      const status = userObj.status || (userObj.approved ? 'ACTIVE' : 'PENDING');
+
+      // Admin bypasses pending check
+      if (role === 'ADMIN') {
+        navigate('/admin/dashboard');
+        return;
+      }
+
+      // If status is PENDING, REJECTED, or SUSPENDED, route to /application-pending
+      if (status !== 'ACTIVE') {
+        navigate('/application-pending');
+        return;
+      }
+
+      // Route to active operational dashboards
+      if (role === 'RESTAURANT' || role === 'RESTAURANT_OWNER') {
+        navigate('/restaurant/dashboard');
+      } else if (role === 'DELIVERY_PARTNER') {
+        navigate('/delivery/dashboard');
+      } else if (role === 'NGO') {
+        navigate('/ngo/dashboard');
+      } else {
+        navigate('/customer/dashboard');
+      }
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Invalid email or password');
     } finally {
@@ -31,11 +50,11 @@ export default function Login() {
   };
 
   return (
-    <div className="container" style={{ maxWidth: '480px', marginTop: '3rem' }}>
+    <div className="container" style={{ maxWidth: '480px', marginTop: '3.5rem', marginBottom: '4rem' }}>
       <div className="card" style={{ borderColor: 'rgba(255, 94, 58, 0.4)' }}>
         <h2 style={{ fontFamily: 'var(--font-heading)', textAlign: 'center', marginBottom: '0.5rem' }}>Sign In to SmartEats</h2>
         <p style={{ color: 'var(--text-sub)', textAlign: 'center', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-          Access your personalized ecosystem portal via API Gateway
+          Access your role-based portal via API Gateway
         </p>
 
         {error && (
@@ -70,7 +89,7 @@ export default function Login() {
           </div>
 
           <button type="submit" className="btn-action" disabled={loading}>
-            {loading ? 'Authenticating with API Gateway...' : 'Sign In'}
+            {loading ? 'Authenticating...' : 'Sign In'}
           </button>
         </form>
 

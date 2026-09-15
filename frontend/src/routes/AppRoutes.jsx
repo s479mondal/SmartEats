@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from '../components/navbar/Navbar';
 import Footer from '../components/footer/Footer';
 import Home from '../pages/Home';
 import Login from '../pages/public/Login';
 import Register from '../pages/public/Register';
+import ApplicationPending from '../pages/public/ApplicationPending';
 import CustomerPortal from '../components/CustomerPortal';
 import RescueOffersPage from '../pages/customer/RescueOffersPage';
 import PreferencesPage from '../pages/customer/PreferencesPage';
@@ -43,6 +44,39 @@ const ComingSoon = ({ title }) => (
 );
 
 export default function AppRoutes() {
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = localStorage.getItem('smarteats_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem('smarteats_cart', JSON.stringify(cart));
+  }, [cart]);
+
+  const addToCart = (item) => {
+    setCart((prev) => {
+      const id = item.id || item._id;
+      const existingIndex = prev.findIndex((i) => (i.id || i._id) === id);
+      if (existingIndex > -1) {
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          qty: (updated[existingIndex].qty || 1) + 1
+        };
+        return updated;
+      }
+      return [...prev, { ...item, qty: 1 }];
+    });
+  };
+
+  const removeFromCart = (itemId) => {
+    setCart((prev) => prev.filter((i) => (i.id || i._id) !== itemId));
+  };
+
   return (
     <div>
       <Navbar />
@@ -52,15 +86,16 @@ export default function AppRoutes() {
           <Route path="/" element={<Home />} />
           <Route path="/about" element={<ComingSoon title="About SmartEats" />} />
           <Route path="/contact" element={<ComingSoon title="Contact Desk" />} />
-          <Route path="/restaurants" element={<ComingSoon title="Explore All Restaurants" />} />
-          <Route path="/food-rescue" element={<ComingSoon title="Smart Food Rescue Marketplace" />} />
+          <Route path="/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
+          <Route path="/food-rescue" element={<RescueOffersPage addToCart={addToCart} />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/application-pending" element={<ApplicationPending />} />
 
           {/* Customer Routes */}
-          <Route path="/customer/dashboard" element={<CustomerPortal cart={[]} setCart={() => {}} addToCart={() => {}} removeFromCart={() => {}} />} />
-          <Route path="/customer/restaurants" element={<CustomerPortal cart={[]} setCart={() => {}} addToCart={() => {}} removeFromCart={() => {}} />} />
-          <Route path="/customer/rescue" element={<RescueOffersPage />} />
+          <Route path="/customer/dashboard" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
+          <Route path="/customer/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
+          <Route path="/customer/rescue" element={<RescueOffersPage addToCart={addToCart} />} />
           <Route path="/customer/preferences" element={<PreferencesPage />} />
 
           {/* Restaurant Routes (RBAC Protection) */}

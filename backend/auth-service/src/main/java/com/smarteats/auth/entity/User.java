@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @Data
@@ -31,13 +32,56 @@ public class User {
 
     private String password;
 
+    private String phone;
+
+    private String address;
+
+    private String location;
+
     @Builder.Default
     private Set<Role> roles = new HashSet<>();
 
     @Builder.Default
-    private boolean approved = true; // Auto-approved for CUSTOMER, false for RESTAURANT_OWNER & DELIVERY_PARTNER
+    private boolean approved = true; // true for CUSTOMER/ADMIN, false for PENDING
 
-    private String status; // PENDING_APPROVAL, APPROVED, REJECTED
+    @Builder.Default
+    private String status = "PENDING"; // PENDING, ACTIVE, REJECTED, SUSPENDED
+
+    private String rejectionReason;
+
+    // Customer Specific Fields
+    private List<String> foodPreferences;
+
+    // Restaurant Owner Specific Fields (Section B & C)
+    private String restaurantName;
+    private String restaurantDescription;
+    private String restaurantAddress;
+    private String restaurantLocation;
+    private String restaurantCity;
+    private String restaurantPincode;
+    private Double restaurantLatitude;
+    private Double restaurantLongitude;
+    private String cuisineType;
+    private String restaurantContact;
+    private String restaurantEmail;
+    private String openingTime;
+    private String closingTime;
+    private String logoUrl;
+    private String businessRegistrationNumber;
+    private String foodLicenseNumber;
+    private String verificationDocumentUrl;
+
+    // Delivery Partner Specific Fields
+    private String vehicleType;
+    private String vehicleNumber;
+    private String verificationInfo; // Driving license / Govt ID
+
+    // NGO Specific Fields
+    private String ngoName;
+    private String contactPerson;
+    private String ngoAddress;
+    private String organizationInfo;
+    private String foodRescueInfo;
 
     // OAuth2 configuration (optional provider fields)
     private String oauth2Provider;

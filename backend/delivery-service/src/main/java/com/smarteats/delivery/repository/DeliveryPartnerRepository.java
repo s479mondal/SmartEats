@@ -10,5 +10,6 @@ import java.util.Optional;
 @Repository
 public interface DeliveryPartnerRepository extends MongoRepository<DeliveryPartner, String> {
     Optional<DeliveryPartner> findByEmail(String email);
+    Optional<DeliveryPartner> findByUserId(String userId);
     List<DeliveryPartner> findByActiveAndAvailable(boolean active, boolean available);
 }

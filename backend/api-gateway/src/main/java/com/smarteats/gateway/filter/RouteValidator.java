@@ -21,7 +21,15 @@ public class RouteValidator {
     );
 
     public Predicate<ServerHttpRequest> isSecured =
-            request -> openApiEndpoints
-                    .stream()
-                    .noneMatch(uri -> request.getURI().getPath().contains(uri));
+            request -> {
+                String path = request.getURI().getPath();
+                if (path.startsWith("/api/restaurants") && !path.startsWith("/api/restaurants/my") && !path.contains("/admin/")) {
+                    if (request.getMethod().name().equalsIgnoreCase("GET")) {
+                        return false;
+                    }
+                }
+                return openApiEndpoints
+                        .stream()
+                        .noneMatch(uri -> path.contains(uri));
+            };
 }

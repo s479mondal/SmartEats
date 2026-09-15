@@ -39,40 +39,69 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
             ServerHttpRequest request = exchange.getRequest();
-            if (validator.isSecured.test(request)) {
-                // Check if Authorization header is present
-                if (!request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION)) {
-                    return onError(exchange, "Missing Authorization Header", HttpStatus.UNAUTHORIZED);
-                }
+            String path = request.getURI().getPath();
+            boolean isAdminRoute = path.startsWith("/api/admin");
+            boolean isSecuredRoute = validator.isSecured.test(request) || isAdminRoute;
 
+            // Strip untrusted client headers that could attempt identity or role spoofing
+            request = request.mutate()
+                    .headers(httpHeaders -> {
+                        httpHeaders.remove("X-User-Email");
+                        httpHeaders.remove("X-User-Roles");
+                        httpHeaders.remove("X-User-Id");
+                        httpHeaders.remove("x-user-email");
+                        httpHeaders.remove("x-user-roles");
+                        httpHeaders.remove("x-user-id");
+                    })
+                    .build();
+
+            boolean hasAuth = request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION);
+
+            if (hasAuth) {
                 String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
                 if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                    return onError(exchange, "Invalid Authorization Header format", HttpStatus.UNAUTHORIZED);
+                    if (isSecuredRoute) {
+                        return onError(exchange, "Invalid Authorization Header format", HttpStatus.UNAUTHORIZED);
+                    }
+                } else {
+                    String token = authHeader.substring(7);
+                    try {
+                        Claims claims = Jwts.parserBuilder()
+                                .setSigningKey(key)
+                                .build()
+                                .parseClaimsJws(token)
+                                .getBody();
+
+                        String email = claims.getSubject();
+                        List<?> roles = claims.get("roles", List.class);
+                        String rolesStr = roles != null ? String.join(",", roles.stream().map(Object::toString).toArray(String[]::new)) : "";
+
+                        // Admin Route RBAC: enforce ADMIN role directly at API Gateway perimeter
+                        if (isAdminRoute) {
+                            boolean hasAdminRole = roles != null && roles.stream()
+                                    .anyMatch(r -> "ADMIN".equalsIgnoreCase(r.toString()) || "ROLE_ADMIN".equalsIgnoreCase(r.toString()));
+                            if (!hasAdminRole) {
+                                return onError(exchange, "Access Denied: Admin role required", HttpStatus.FORBIDDEN);
+                            }
+                        }
+
+                        // Propagate cryptographically verified identity and roles downstream
+                        request = request.mutate()
+                                .headers(httpHeaders -> {
+                                    httpHeaders.set("X-User-Email", email);
+                                    httpHeaders.set("X-User-Roles", rolesStr);
+                                })
+                                .build();
+                    } catch (Exception e) {
+                        if (isSecuredRoute) {
+                            return onError(exchange, "Unauthorized access: " + e.getMessage(), HttpStatus.UNAUTHORIZED);
+                        }
+                    }
                 }
-
-                String token = authHeader.substring(7);
-                try {
-                    // Validate and parse token
-                    Claims claims = Jwts.parserBuilder()
-                            .setSigningKey(key)
-                            .build()
-                            .parseClaimsJws(token)
-                            .getBody();
-
-                    String email = claims.getSubject();
-                    List<?> roles = claims.get("roles", List.class);
-                    String rolesStr = roles != null ? String.join(",", roles.stream().map(Object::toString).toArray(String[]::new)) : "";
-
-                    // Mutate request headers to forward email and roles downstream
-                    request = request.mutate()
-                            .header("X-User-Email", email)
-                            .header("X-User-Roles", rolesStr)
-                            .build();
-
-                } catch (Exception e) {
-                    return onError(exchange, "Unauthorized access: " + e.getMessage(), HttpStatus.UNAUTHORIZED);
-                }
+            } else if (isSecuredRoute) {
+                return onError(exchange, "Missing Authorization Header", HttpStatus.UNAUTHORIZED);
             }
+
             return chain.filter(exchange.mutate().request(request).build());
         };
     }

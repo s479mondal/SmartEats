@@ -10,4 +10,5 @@ import java.util.List;
 public interface RestaurantRepository extends MongoRepository<Restaurant, String> {
     List<Restaurant> findByApproved(boolean approved);
     List<Restaurant> findByOwnerEmail(String ownerEmail);
+    List<Restaurant> findByOwnerId(String ownerId);
 }

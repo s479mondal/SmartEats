@@ -1,0 +1,46 @@
+[
+  {
+    "_id": "rest_101",
+    "name": "Artisan Pizza Hub",
+    "ownerEmail": "restaurant@smarteats.com",
+    "address": "42 Indiranagar 100ft Rd, Bengaluru",
+    "phone": "+91 9876543210",
+    "cuisineType": "Italian",
+    "approved": true,
+    "createdAt": "2026-08-25T21:06:54.791Z"
+  },
+  {
+    "_id": "rest_102",
+    "name": "Spice Garden",
+    "ownerEmail": "restaurant@smarteats.com",
+    "address": "15 Koramangala 5th Block, Bengaluru",
+    "phone": "+91 9123456789",
+    "cuisineType": "North Indian",
+    "approved": true,
+    "createdAt": "2026-08-25T21:06:54.791Z"
+  },
+  {
+    "_id": "6a8f2c0c877c6b29526aeb58",
+    "ownerId": "6a8f2c0902cd116393594283",
+    "name": "Marco Artisan Trattoria",
+    "ownerEmail": "marco.pizza@smarteats.com",
+    "address": "77 Koramangala 6th Block, Bengaluru",
+    "phone": "+91 91111 22222",
+    "cuisineType": "Italian / Gourmet Pizzas",
+    "approved": true,
+    "status": "ACTIVE",
+    "_class": "com.smarteats.restaurant.entity.Restaurant"
+  },
+  {
+    "_id": "6a8f30e8877c6b29526aeb59",
+    "ownerId": "6a8f30e802cd116393594286",
+    "name": "Debur Dokan",
+    "ownerEmail": "d@gmail.com",
+    "address": "Near Gandhi bazarr",
+    "phone": "9123654789",
+    "cuisineType": "Bengali Style",
+    "approved": true,
+    "status": "ACTIVE",
+    "_class": "com.smarteats.restaurant.entity.Restaurant"
+  }
+]

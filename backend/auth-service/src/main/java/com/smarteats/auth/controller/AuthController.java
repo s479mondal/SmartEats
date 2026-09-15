@@ -51,6 +51,13 @@ public class AuthController {
         }
     }
 
+    @GetMapping("/profile")
+    public ResponseEntity<ApiResponse<UserDto>> getProfile(@RequestParam("email") String email) {
+        log.info("Fetching profile for email: {}", email);
+        UserDto userDto = authService.getUserByEmail(email);
+        return ResponseEntity.ok(ApiResponse.success(userDto, "User profile fetched successfully"));
+    }
+
     @GetMapping("/db/test")
     public ResponseEntity<ApiResponse<String>> testDb() {
         String result = authService.testDatabaseConnection();

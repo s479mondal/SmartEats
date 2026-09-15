@@ -1,0 +1,19 @@
+[
+  {
+    "_id": "6a8f2c182d001d66eb1d2ae1",
+    "userId": "6a8f2c1702cd116393594284",
+    "name": "Rider Ajay",
+    "email": "ajay.rider@smarteats.com",
+    "phone": "+91 97777 33333",
+    "address": "BTM Layout 2nd Stage, Bengaluru",
+    "vehicleType": "SCOOTER",
+    "vehicleNumber": "KA-05-XY-8899",
+    "verificationInfo": "DL-KA-2022-778899",
+    "latitude": 12.9716,
+    "longitude": 77.5946,
+    "active": true,
+    "available": true,
+    "status": "ACTIVE",
+    "_class": "com.smarteats.delivery.entity.DeliveryPartner"
+  }
+]

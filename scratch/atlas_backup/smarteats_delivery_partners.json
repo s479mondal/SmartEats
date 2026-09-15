@@ -1,0 +1,12 @@
+[
+  {
+    "_id": "6a8f2c3b0fe5982b8d659475",
+    "userId": "6a8f2c1702cd116393594284",
+    "name": "Rider Ajay",
+    "phone": "+91 97777 33333",
+    "vehicleType": "SCOOTER",
+    "vehicleNumber": "KA-05-XY-8899",
+    "status": "AVAILABLE",
+    "rating": 5
+  }
+]

@@ -1,0 +1,207 @@
+[
+  {
+    "_id": "usr_admin_1",
+    "name": "System Admin",
+    "email": "admin@smarteats.com",
+    "password": "$2b$10$hMaceja8Hp4AACCbX.PtiuADXK4gMlByoH7qaUXej/2ofHjjsJmwO",
+    "roles": [
+      "ADMIN"
+    ],
+    "approved": true,
+    "status": "APPROVED",
+    "createdAt": "2026-08-25T21:06:54.568Z"
+  },
+  {
+    "_id": "usr_ngo_1",
+    "name": "Robin Hood Army",
+    "email": "ngo@smarteats.com",
+    "password": "$2b$10$hMaceja8Hp4AACCbX.PtiuADXK4gMlByoH7qaUXej/2ofHjjsJmwO",
+    "roles": [
+      "NGO"
+    ],
+    "approved": true,
+    "status": "APPROVED",
+    "createdAt": "2026-08-25T21:06:54.568Z"
+  },
+  {
+    "_id": "usr_cust_1",
+    "name": "Raj Kumar",
+    "email": "customer@smarteats.com",
+    "password": "$2b$10$hMaceja8Hp4AACCbX.PtiuADXK4gMlByoH7qaUXej/2ofHjjsJmwO",
+    "roles": [
+      "CUSTOMER"
+    ],
+    "approved": true,
+    "status": "APPROVED",
+    "createdAt": "2026-08-25T21:06:54.568Z"
+  },
+  {
+    "_id": "usr_rest_1",
+    "name": "Rajesh Sharma",
+    "email": "restaurant@smarteats.com",
+    "password": "$2b$10$hMaceja8Hp4AACCbX.PtiuADXK4gMlByoH7qaUXej/2ofHjjsJmwO",
+    "roles": [
+      "RESTAURANT_OWNER"
+    ],
+    "approved": true,
+    "status": "APPROVED",
+    "createdAt": "2026-08-25T21:06:54.568Z"
+  },
+  {
+    "_id": "usr_driver_1",
+    "name": "Suresh Kumar",
+    "email": "driver@smarteats.com",
+    "password": "$2b$10$hMaceja8Hp4AACCbX.PtiuADXK4gMlByoH7qaUXej/2ofHjjsJmwO",
+    "roles": [
+      "DELIVERY_PARTNER"
+    ],
+    "approved": true,
+    "status": "APPROVED",
+    "createdAt": "2026-08-25T21:06:54.568Z"
+  },
+  {
+    "_id": "6a8e042ceeb91e4c04a24c37",
+    "name": "Atlas Cloud User",
+    "email": "clouduser@smarteats.com",
+    "password": "$2b$10$hMaceja8Hp4AACCbX.PtiuADXK4gMlByoH7qaUXej/2ofHjjsJmwO",
+    "roles": [
+      "CUSTOMER"
+    ],
+    "approved": true,
+    "status": "APPROVED",
+    "_class": "com.smarteats.auth.entity.User"
+  },
+  {
+    "_id": "6a8f0eeb355bca393bc85b3b",
+    "name": "Soumen Mondal",
+    "email": "s479mondal@gmail.com",
+    "password": "$2b$10$hMaceja8Hp4AACCbX.PtiuADXK4gMlByoH7qaUXej/2ofHjjsJmwO",
+    "roles": [
+      "CUSTOMER"
+    ],
+    "approved": true,
+    "status": "APPROVED",
+    "_class": "com.smarteats.auth.entity.User"
+  },
+  {
+    "_id": "6a8f0f3c355bca393bc85b3c",
+    "name": "Soumen Mondal",
+    "email": "s4mondal@gmail.com",
+    "password": "$2b$10$hMaceja8Hp4AACCbX.PtiuADXK4gMlByoH7qaUXej/2ofHjjsJmwO",
+    "roles": [
+      "RESTAURANT_OWNER"
+    ],
+    "approved": true,
+    "status": "APPROVED",
+    "_class": "com.smarteats.auth.entity.User"
+  },
+  {
+    "_id": "6a8f2bfe02cd116393594282",
+    "name": "Customer Priya",
+    "email": "priya.customer@smarteats.com",
+    "password": "$2a$10$opaepLJfCXoIPqIWINzs/.pFKANjsGyivwKb7ClM9H0BqjLtzqnua",
+    "phone": "+91 98888 11111",
+    "address": "Indiranagar 100ft Road, Bengaluru",
+    "roles": [
+      "CUSTOMER"
+    ],
+    "approved": true,
+    "status": "ACTIVE",
+    "foodPreferences": [
+      "Vegetarian",
+      "Gluten-Free"
+    ],
+    "_class": "com.smarteats.auth.entity.User"
+  },
+  {
+    "_id": "6a8f2c0902cd116393594283",
+    "name": "Chef Marco",
+    "email": "marco.pizza@smarteats.com",
+    "password": "$2a$10$tARkTLgXJGUmu.jPNWP7QeU4RE.xOBuJIELAFJoO2w5p.aCDpydKW",
+    "phone": "+91 91111 22222",
+    "roles": [
+      "RESTAURANT_OWNER"
+    ],
+    "approved": true,
+    "status": "ACTIVE",
+    "restaurantName": "Marco Artisan Trattoria",
+    "restaurantAddress": "77 Koramangala 6th Block, Bengaluru",
+    "restaurantLocation": "Bengaluru",
+    "cuisineType": "Italian / Gourmet Pizzas",
+    "restaurantContact": "+91 80 5544 3322",
+    "_class": "com.smarteats.auth.entity.User"
+  },
+  {
+    "_id": "6a8f2c1702cd116393594284",
+    "name": "Rider Ajay",
+    "email": "ajay.rider@smarteats.com",
+    "password": "$2a$10$.ZMUzn0jVvYIt5HJQ8FLM.9cStaeSn9dSxCo/uVpImMW.jjVhNP0a",
+    "phone": "+91 97777 33333",
+    "address": "BTM Layout 2nd Stage, Bengaluru",
+    "roles": [
+      "DELIVERY_PARTNER"
+    ],
+    "approved": true,
+    "status": "ACTIVE",
+    "vehicleType": "SCOOTER",
+    "vehicleNumber": "KA-05-XY-8899",
+    "verificationInfo": "DL-KA-2022-778899",
+    "_class": "com.smarteats.auth.entity.User"
+  },
+  {
+    "_id": "6a8f2c2402cd116393594285",
+    "name": "Ananya Roy",
+    "email": "ananya.ngo@smarteats.com",
+    "password": "$2a$10$q8x575oZnrRhry2/wHzt4.1gsBkbPvNXbPVBs4StSp9lZEGqIZWT6",
+    "phone": "+91 80 9900 1122",
+    "roles": [
+      "NGO"
+    ],
+    "approved": false,
+    "status": "PENDING",
+    "ngoName": "FeedIndia Trust Foundation",
+    "contactPerson": "Ananya Roy",
+    "ngoAddress": "55 Shanti Nagar, Bengaluru",
+    "organizationInfo": "Zero Hunger & Community Food Rescue",
+    "foodRescueInfo": "Capable of 300+ daily surplus meal collections",
+    "_class": "com.smarteats.auth.entity.User"
+  },
+  {
+    "_id": "6a8f30e802cd116393594286",
+    "name": "Debjit Mahato",
+    "email": "d@gmail.com",
+    "password": "$2a$10$Z9dw86eTG.0LW3eNpDJfEeA1817KtF2dpnLa8H81L.S64L2M2Q06O",
+    "phone": "9123654789",
+    "address": "Near Gandhi bazarr",
+    "location": "Purba Medinapur, West Bengal",
+    "roles": [
+      "RESTAURANT_OWNER"
+    ],
+    "approved": true,
+    "status": "ACTIVE",
+    "restaurantName": "Debur Dokan",
+    "restaurantAddress": "Near Gandhi bazarr",
+    "restaurantLocation": "Purba Medinapur, West Bengal",
+    "cuisineType": "Bengali Style",
+    "restaurantContact": "9123654789",
+    "_class": "com.smarteats.auth.entity.User"
+  },
+  {
+    "_id": "6a8f31be02cd116393594287",
+    "name": "Soumen Mondal",
+    "email": "s7mondal@gmail.com",
+    "password": "$2a$10$Q9xZq9yKxiJTr8nOvoLfY.tTgL7KRhT8UPSixGNtjiHERoTz/gy5a",
+    "phone": "+919883366183",
+    "address": "Burima Still Furniure, Kaliganj",
+    "location": "",
+    "roles": [
+      "CUSTOMER"
+    ],
+    "approved": true,
+    "status": "ACTIVE",
+    "foodPreferences": [
+      "Vegetarian"
+    ],
+    "_class": "com.smarteats.auth.entity.User"
+  }
+]

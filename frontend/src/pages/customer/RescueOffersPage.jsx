@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { rescueApi } from '../../api/orderApi';
 
-export default function RescueOffersPage() {
+export default function RescueOffersPage({ addToCart }) {
   const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -71,7 +71,14 @@ export default function RescueOffersPage() {
               <button
                 className="btn-action"
                 style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}
-                onClick={() => alert(`Claimed "${offer.name}" for ₹${offer.rescuePrice || offer.price}! Order processed via API Gateway.`)}
+                onClick={() => {
+                  if (addToCart) {
+                    addToCart({ ...offer, price: offer.rescuePrice || offer.price });
+                    alert(`Added "${offer.name}" deal to shopping cart!`);
+                  } else {
+                    alert(`Claimed "${offer.name}" for ₹${offer.rescuePrice || offer.price}! Order processed via API Gateway.`);
+                  }
+                }}
               >
                 Buy Rescue Food Deal
               </button>

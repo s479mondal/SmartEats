@@ -9,5 +9,10 @@ export const authApi = {
   register: async (userData) => {
     const response = await apiClient.post('/api/auth/register', userData);
     return response.data;
+  },
+
+  getProfile: async (email) => {
+    const response = await apiClient.get(`/api/auth/profile?email=${encodeURIComponent(email)}`);
+    return response.data;
   }
 };

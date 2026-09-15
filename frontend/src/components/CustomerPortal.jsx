@@ -12,18 +12,26 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
   const [restaurants, setRestaurants] = useState([]);
   const [rescueOffers, setRescueOffers] = useState([]);
   const [activeOrder, setActiveOrder] = useState(null);
+  const [customerOrders, setCustomerOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch menu, restaurants, and rescue offers
+    // Fetch menu, restaurants, rescue offers, and customer orders
     Promise.all([
       restaurantApi.getMenu('all').catch(() => []),
       restaurantApi.getRestaurants().catch(() => []),
-      rescueApi.getRescueOffers().catch(() => [])
-    ]).then(([menuRes, restRes, rescueRes]) => {
+      rescueApi.getRescueOffers().catch(() => []),
+      orderApi.getCustomerOrders().catch(() => [])
+    ]).then(([menuRes, restRes, rescueRes, ordersRes]) => {
       setMenuItems(menuRes?.data || menuRes || []);
       setRestaurants(restRes?.data || restRes || []);
       setRescueOffers(rescueRes?.data || rescueRes || []);
+      const fetchedOrders = ordersRes?.data || ordersRes || [];
+      setCustomerOrders(Array.isArray(fetchedOrders) ? fetchedOrders : []);
+      if (Array.isArray(fetchedOrders) && fetchedOrders.length > 0) {
+        const active = fetchedOrders.find(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED');
+        if (active) setActiveOrder(active);
+      }
     }).finally(() => setLoading(false));
   }, []);
 
@@ -45,9 +53,11 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
         items: cart,
         totalAmount: cartTotal
       });
-      alert(`Order Placed Successfully! ✅\n\nOrder ID: ${orderRes.data?.id || orderRes.id || 'ORD-1024'}`);
-      setActiveOrder(orderRes.data || orderRes || { id: 'ORD-1024', status: 'PREPARING', etaMinutes: 28 });
-      setCart([]);
+      const newOrder = orderRes.data || orderRes || { id: 'ORD-1024', status: 'PREPARING', etaMinutes: 28 };
+      alert(`Order Placed Successfully! ✅\n\nOrder ID: ${newOrder.id || 'ORD-1024'}`);
+      setActiveOrder(newOrder);
+      setCustomerOrders(prev => [newOrder, ...prev]);
+      if (setCart) setCart([]);
     } catch (err) {
       alert('Checkout error: ' + (err.response?.data?.message || err.message));
     }
@@ -209,7 +219,7 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
           </div>
 
           {/* Preferences Quick Card */}
-          <div className="card">
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
             <h3 style={{ fontFamily: 'var(--font-heading)', marginBottom: '0.8rem' }}>Your Preferences</h3>
             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
               {['Vegetarian', 'Paneer', 'Biryani', 'Spicy'].map((pref, i) => (
@@ -222,6 +232,26 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
               Manage Preferences
             </Link>
           </div>
+
+          {/* Customer Order History Card */}
+          {customerOrders.length > 0 && (
+            <div className="card">
+              <h3 style={{ fontFamily: 'var(--font-heading)', marginBottom: '0.8rem' }}>📦 Order History ({customerOrders.length})</h3>
+              <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                {customerOrders.map((ord) => (
+                  <div key={ord.id} style={{ padding: '0.6rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                      <span>Order #{ord.id?.substring(0, 8)}</span>
+                      <span style={{ color: ord.status === 'DELIVERED' ? 'var(--accent-green)' : '#f59e0b' }}>{ord.status}</span>
+                    </div>
+                    <div style={{ color: 'var(--text-sub)', marginTop: '2px' }}>
+                      Total: ₹{ord.totalAmount} • {ord.items?.length || 0} items
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 package com.smarteats.delivery.controller;
 
 import com.smarteats.common.dto.ApiResponse;
+import com.smarteats.common.exception.ForbiddenException;
 import com.smarteats.common.exception.UnauthorizedException;
 import com.smarteats.delivery.dto.DeliveryPartnerRegisterRequest;
 import com.smarteats.delivery.dto.DeliveryPartnerResponse;
@@ -89,7 +90,7 @@ public class DeliveryController {
     // Role verification helper
     private void checkRole(String rolesHeader, String requiredRole) {
         if (rolesHeader == null || (!rolesHeader.contains(requiredRole) && !rolesHeader.contains("ADMIN"))) {
-            throw new UnauthorizedException("Access Denied: You do not possess the required privilege " + requiredRole);
+            throw new ForbiddenException("Access Denied: You do not possess the required privilege " + requiredRole);
         }
     }
 }

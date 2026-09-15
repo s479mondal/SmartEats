@@ -16,5 +16,6 @@ public interface DeliveryService {
     
     // Internal triggering
     DeliveryResponse createPendingDelivery(String orderId, String restaurantId, String customerEmail);
+    DeliveryResponse createPendingDelivery(String orderId, String restaurantId, String customerEmail, double restLat, double restLng, double delLat, double delLng);
     void triggerRiderAssignment(String deliveryId);
 }

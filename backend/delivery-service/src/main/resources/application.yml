@@ -6,7 +6,7 @@ spring:
     name: delivery-service
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb+srv://soumenmondal741150_db_user:5r47pqpO9Xb2ITI6@smarteatscluster.02gfkuh.mongodb.net/smarteats_delivery?retryWrites=true&w=majority}
+      uri: ${MONGODB_URI_DELIVERY}
   kafka:
     bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
     producer:
@@ -23,5 +23,8 @@ spring:
 kafka:
   topic:
     order-created: smarteats.order.created
+    order-accepted: smarteats.order.accepted
     delivery-assigned: smarteats.delivery.assigned
     order-delivered: smarteats.order.delivered
+    driver-registered: smarteats.auth.driver-registered
+    status-updated: smarteats.auth.status-updated

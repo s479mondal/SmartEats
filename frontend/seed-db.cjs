@@ -11,7 +11,10 @@ try {
   if (match) envUri = match[1].trim();
 } catch (e) {}
 
-const uri = envUri || 'mongodb+srv://soumenmondal741150_db_user:5r47pqpO9Xb2ITI6@smarteatscluster.02gfkuh.mongodb.net/smarteats?retryWrites=true&w=majority';
+if (!envUri) {
+  throw new Error("MONGODB_URI environment variable must be set in .env");
+}
+const uri = envUri;
 const client = new MongoClient(uri);
 
 async function seedDatabase() {
