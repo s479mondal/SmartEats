@@ -3,6 +3,13 @@
 
 # Log file
 *.log
+*.log.*
+*.tmp
+*.gz
+logs/
+backend/*.log*
+backend/*.tmp
+backend/*.gz
 
 # Build folders
 target/

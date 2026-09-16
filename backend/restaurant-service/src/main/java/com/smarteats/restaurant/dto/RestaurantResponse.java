@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import org.springframework.data.mongodb.core.geo.GeoJsonPoint;
+
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
@@ -26,6 +28,7 @@ public class RestaurantResponse implements Serializable {
     private String pincode;
     private Double latitude;
     private Double longitude;
+    private GeoJsonPoint geoLocation;
     private String location;
     private String phone;
     private String cuisineType;
@@ -41,4 +44,5 @@ public class RestaurantResponse implements Serializable {
     private String approvedBy;
     private LocalDateTime approvalDate;
     private LocalDateTime createdAt;
+    private Double distanceKm;
 }

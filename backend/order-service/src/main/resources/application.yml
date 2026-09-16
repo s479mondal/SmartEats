@@ -19,9 +19,7 @@ spring:
       group-id: order-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 kafka:
   topic:
@@ -29,3 +27,11 @@ kafka:
     order-status: smarteats.order.status
     order-accepted: smarteats.order.accepted
     order-ready: smarteats.order.ready
+    order-delivered: smarteats.order.delivered
+
+services:
+  auth-service:
+    url: ${AUTH_SERVICE_URL:http://localhost:8081}
+  restaurant-service:
+    url: ${RESTAURANT_SERVICE_URL:http://localhost:8082}
+

@@ -183,7 +183,10 @@ export default function Navbar() {
                   ) : (
                     notifications.map((n) => (
                       <div key={n.id} style={{ padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9', opacity: n.read ? 0.6 : 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#1e293b' }}>{n.title}</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#1e293b' }}>{n.title}</div>
+                          {n.time && <span style={{ fontSize: '0.68rem', color: '#94a3b8', marginLeft: '6px', whiteSpace: 'nowrap' }}>{n.time}</span>}
+                        </div>
                         <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{n.message}</div>
                       </div>
                     ))

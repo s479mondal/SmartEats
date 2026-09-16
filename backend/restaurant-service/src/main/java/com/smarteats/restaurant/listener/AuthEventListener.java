@@ -55,6 +55,7 @@ public class AuthEventListener {
                         .open(true)
                         .build();
 
+                restaurant.syncGeoLocation();
                 Restaurant saved = restaurantRepository.save(restaurant);
                 log.info("Created restaurant profile with ID '{}' for owner '{}'", saved.getId(), event.getEmail());
             }

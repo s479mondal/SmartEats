@@ -1,34 +1,47 @@
 import React from 'react';
 
-export default function RestaurantCard({ restaurant }) {
-  const isOpen = restaurant.status?.toLowerCase() === 'open';
+export default function RestaurantCard({ restaurant, dark = false }) {
+  const isOpen = restaurant.open !== undefined 
+    ? Boolean(restaurant.open) 
+    : (restaurant.status?.toLowerCase() === 'open');
+
+  const ratingText = restaurant.rating || '4.5 ★';
+  const cuisineText = restaurant.cuisineType || restaurant.cuisine || 'Multi-Cuisine';
+  const displayImage = restaurant.logoUrl || restaurant.image || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=600&q=80';
+  const locationText = restaurant.location 
+    ? restaurant.location.split(',')[0] 
+    : (restaurant.city || restaurant.address || 'Bengaluru');
+
+  const isDarkMode = dark;
 
   return (
-    <div style={{
-      background: 'white',
-      border: '1px solid #e2e8f0',
-      borderRadius: '20px',
-      overflow: 'hidden',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.02)',
-      transition: 'all 0.3s ease',
-      display: 'flex',
-      flexDirection: 'column',
-      fontFamily: 'var(--font-body)'
-    }}
-    onMouseOver={(e) => {
-      e.currentTarget.style.transform = 'translateY(-4px)';
-      e.currentTarget.style.boxShadow = '0 12px 30px rgba(0,0,0,0.06)';
-      e.currentTarget.style.borderColor = '#cbd5e1';
-    }}
-    onMouseOut={(e) => {
-      e.currentTarget.style.transform = 'translateY(0)';
-      e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.02)';
-      e.currentTarget.style.borderColor = '#e2e8f0';
-    }}
+    <div
+      style={{
+        background: isDarkMode ? 'var(--bg-card, rgba(22, 31, 49, 0.7))' : 'white',
+        border: isDarkMode ? '1px solid var(--bg-card-border, rgba(255, 255, 255, 0.08))' : '1px solid #e2e8f0',
+        borderRadius: '20px',
+        overflow: 'hidden',
+        boxShadow: isDarkMode ? '0 8px 24px rgba(0,0,0,0.25)' : '0 4px 20px rgba(0,0,0,0.02)',
+        transition: 'all 0.3s ease',
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: 'var(--font-body)',
+        color: isDarkMode ? 'var(--text-main, #f8fafc)' : '#0f172a'
+      }}
+      onMouseOver={(e) => {
+        e.currentTarget.style.transform = 'translateY(-4px)';
+        e.currentTarget.style.boxShadow = isDarkMode ? '0 16px 36px rgba(0,0,0,0.4)' : '0 12px 30px rgba(0,0,0,0.06)';
+        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(0, 242, 254, 0.4)' : '#cbd5e1';
+      }}
+      onMouseOut={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = isDarkMode ? '0 8px 24px rgba(0,0,0,0.25)' : '0 4px 20px rgba(0,0,0,0.02)';
+        e.currentTarget.style.borderColor = isDarkMode ? 'var(--bg-card-border, rgba(255, 255, 255, 0.08))' : '#e2e8f0';
+      }}
     >
       <div style={{ position: 'relative', height: '170px', overflow: 'hidden' }}>
         <img
-          src={restaurant.image}
+          src={displayImage}
           alt={restaurant.name}
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />
@@ -45,22 +58,22 @@ export default function RestaurantCard({ restaurant }) {
           textTransform: 'uppercase',
           letterSpacing: '0.5px'
         }}>
-          {restaurant.status}
+          {isOpen ? 'OPEN' : 'CLOSED'}
         </div>
       </div>
 
       <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem', gap: '8px' }}>
           <h3 style={{
             fontFamily: 'var(--font-heading)',
             fontSize: '1.15rem',
             fontWeight: 800,
-            color: '#0f172a'
+            color: isDarkMode ? '#fff' : '#0f172a'
           }}>
             {restaurant.name}
           </h3>
           <span style={{
-            background: 'rgba(249, 115, 22, 0.08)',
+            background: isDarkMode ? 'rgba(249, 115, 22, 0.15)' : 'rgba(249, 115, 22, 0.08)',
             color: '#ea580c',
             padding: '2px 8px',
             borderRadius: '8px',
@@ -68,29 +81,38 @@ export default function RestaurantCard({ restaurant }) {
             fontWeight: 700,
             whiteSpace: 'nowrap'
           }}>
-            {restaurant.rating}
+            {ratingText}
           </span>
         </div>
 
-        <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.8rem' }}>
-          {restaurant.cuisine}
+        <div style={{ fontSize: '0.85rem', color: isDarkMode ? 'var(--text-sub, #94a3b8)' : '#64748b', marginBottom: '0.8rem' }}>
+          {cuisineText}
         </div>
 
         <div style={{
           marginTop: 'auto',
           paddingTop: '0.8rem',
-          borderTop: '1px solid #f1f5f9',
+          borderTop: isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid #f1f5f9',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           fontSize: '0.82rem',
-          color: '#475569',
+          color: isDarkMode ? 'var(--text-sub, #94a3b8)' : '#475569',
           fontWeight: 600
         }}>
-          <span>⏱️ {restaurant.deliveryTime}</span>
-          <span style={{ color: '#64748b' }}>📍 {restaurant.location.split(',')[0]}</span>
+          <span>⏱️ {restaurant.deliveryTime || '20-30 min'}</span>
+          {restaurant.distanceKm != null ? (
+            <span style={{ color: isDarkMode ? 'var(--accent-cyan, #00f2fe)' : '#059669', fontWeight: 700 }}>
+              📍 {Number(restaurant.distanceKm).toFixed(2)} km away
+            </span>
+          ) : (
+            <span style={{ color: isDarkMode ? 'var(--text-sub, #94a3b8)' : '#64748b' }}>
+              📍 {locationText}
+            </span>
+          )}
         </div>
       </div>
     </div>
   );
 }
+

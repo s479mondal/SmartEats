@@ -13,13 +13,25 @@ import com.smarteats.restaurant.entity.Restaurant;
 import com.smarteats.restaurant.repository.MenuItemRepository;
 import com.smarteats.restaurant.repository.ProfileChangeRequestRepository;
 import com.smarteats.restaurant.repository.RestaurantRepository;
+import com.smarteats.common.geocoding.GeocodingResult;
+import com.smarteats.common.geocoding.GeocodingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResult;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.geo.Metrics;
+import org.springframework.data.geo.Point;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -27,22 +39,48 @@ import java.util.stream.Collectors;
 @Service
 public class RestaurantServiceImpl implements RestaurantService {
 
+    public static final double MAX_RADIUS_KM = 50.0;
+    public static final double DEFAULT_RADIUS_KM = 5.0;
+
     private final RestaurantRepository restaurantRepository;
     private final MenuItemRepository menuItemRepository;
     private final ProfileChangeRequestRepository profileChangeRequestRepository;
+    private final GeocodingService geocodingService;
 
     public RestaurantServiceImpl(RestaurantRepository restaurantRepository,
                                  MenuItemRepository menuItemRepository,
-                                 ProfileChangeRequestRepository profileChangeRequestRepository) {
+                                 ProfileChangeRequestRepository profileChangeRequestRepository,
+                                 GeocodingService geocodingService) {
         this.restaurantRepository = restaurantRepository;
         this.menuItemRepository = menuItemRepository;
         this.profileChangeRequestRepository = profileChangeRequestRepository;
+        this.geocodingService = geocodingService;
     }
 
     @Override
     @CacheEvict(value = "approved_restaurants", allEntries = true)
     public RestaurantResponse registerRestaurant(RestaurantRequest request, String ownerEmail) {
         log.info("Registering new restaurant '{}' by owner '{}'", request.getName(), ownerEmail);
+        
+        Double lat = request.getLatitude();
+        Double lon = request.getLongitude();
+
+        String addressQuery = buildAddressQuery(request.getAddress(), request.getCity(), request.getPincode());
+        if (addressQuery != null && !addressQuery.isBlank()) {
+            log.info("Triggering authoritative geocoding for restaurant registration address: '{}'", addressQuery);
+            GeocodingResult result = geocodingService.geocodeAddress(addressQuery);
+            if (result.isSuccess()) {
+                lat = result.getLatitude();
+                lon = result.getLongitude();
+                log.info("Geocoding resolved restaurant coordinates: lat={}, lon={}", lat, lon);
+            } else {
+                log.warn("Restaurant address geocoding failed for '{}': {}", addressQuery, result.getErrorMessage());
+                throw new BadRequestException("Restaurant address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical address.");
+            }
+        }
+
+        validateCoordinates(lat, lon);
+
         Restaurant restaurant = Restaurant.builder()
                 .name(request.getName())
                 .description(request.getDescription())
@@ -50,6 +88,8 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .address(request.getAddress())
                 .city(request.getCity())
                 .pincode(request.getPincode())
+                .latitude(lat)
+                .longitude(lon)
                 .phone(request.getPhone())
                 .email(request.getEmail() != null ? request.getEmail() : ownerEmail)
                 .cuisineType(request.getCuisineType())
@@ -61,6 +101,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .open(true)
                 .build();
 
+        restaurant.syncGeoLocation();
         Restaurant saved = restaurantRepository.save(restaurant);
         return mapToResponse(saved);
     }
@@ -111,7 +152,16 @@ public class RestaurantServiceImpl implements RestaurantService {
         if (request.getLogoUrl() != null) restaurant.setLogoUrl(request.getLogoUrl());
         if (request.getOpen() != null) restaurant.setOpen(request.getOpen());
         if (request.getCuisineType() != null) restaurant.setCuisineType(request.getCuisineType());
+        if (request.getLatitude() != null) {
+            validateCoordinates(request.getLatitude(), null);
+            restaurant.setLatitude(request.getLatitude());
+        }
+        if (request.getLongitude() != null) {
+            validateCoordinates(null, request.getLongitude());
+            restaurant.setLongitude(request.getLongitude());
+        }
 
+        restaurant.syncGeoLocation();
         Restaurant saved = restaurantRepository.save(restaurant);
         return mapToResponse(saved);
     }
@@ -137,6 +187,85 @@ public class RestaurantServiceImpl implements RestaurantService {
         return restaurantRepository.findByApproved(true).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<RestaurantResponse> findNearbyRestaurants(Double latitude, Double longitude, Double radiusKm) {
+        log.info("Finding nearby restaurants: lat={}, lng={}, radius={}km", latitude, longitude, radiusKm);
+
+        if (latitude == null) {
+            throw new BadRequestException("Latitude is required");
+        }
+        if (longitude == null) {
+            throw new BadRequestException("Longitude is required");
+        }
+        if (radiusKm == null) {
+            radiusKm = DEFAULT_RADIUS_KM;
+        }
+
+        if (latitude < -90.0 || latitude > 90.0) {
+            throw new BadRequestException("Invalid latitude: Must be between -90 and 90 degrees");
+        }
+        if (longitude < -180.0 || longitude > 180.0) {
+            throw new BadRequestException("Invalid longitude: Must be between -180 and 180 degrees");
+        }
+        if (radiusKm <= 0.0) {
+            throw new BadRequestException("Invalid radius: Must be greater than 0 kilometers");
+        }
+        if (radiusKm > MAX_RADIUS_KM) {
+            throw new BadRequestException("Invalid radius: Maximum allowable search radius is " + MAX_RADIUS_KM + " km");
+        }
+
+        // Spring Data Point constructor: Point(x, y) where x = longitude, y = latitude
+        Point customerPoint = new Point(longitude, latitude);
+        Distance searchDistance = new Distance(radiusKm, Metrics.KILOMETERS);
+
+        List<Restaurant> nearbyList = restaurantRepository.findByApprovedTrueAndGeoLocationNear(customerPoint, searchDistance);
+        if (nearbyList == null || nearbyList.isEmpty()) {
+            log.info("No approved restaurants found within {}km of [{}, {}]", radiusKm, latitude, longitude);
+            return Collections.emptyList();
+        }
+
+        List<RestaurantResponse> responses = new ArrayList<>();
+        for (Restaurant restaurant : nearbyList) {
+            if (restaurant == null) continue;
+
+            double distKm;
+            if (restaurant.getLatitude() != null && restaurant.getLongitude() != null) {
+                distKm = calculateHaversineDistance(latitude, longitude, restaurant.getLatitude(), restaurant.getLongitude());
+            } else {
+                distKm = 0.0;
+            }
+
+            double roundedDist = BigDecimal.valueOf(distKm)
+                    .setScale(2, RoundingMode.HALF_UP)
+                    .doubleValue();
+
+            RestaurantResponse response = mapToResponse(restaurant);
+            response.setDistanceKm(roundedDist);
+            responses.add(response);
+        }
+
+        // Sort ascending by distance: nearest first
+        responses.sort(Comparator.comparing(RestaurantResponse::getDistanceKm));
+        log.info("Found {} approved restaurants within {}km of [{}, {}]", responses.size(), radiusKm, latitude, longitude);
+        return responses;
+    }
+
+    private double calculateHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
+        final double EARTH_RADIUS_KM = 6371.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+
+        double rLat1 = Math.toRadians(lat1);
+        double rLat2 = Math.toRadians(lat2);
+
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(rLat1) * Math.cos(rLat2);
+
+        double c = 2 * Math.asin(Math.sqrt(a));
+
+        return EARTH_RADIUS_KM * c;
     }
 
     @Override
@@ -179,7 +308,16 @@ public class RestaurantServiceImpl implements RestaurantService {
         if (request.getLogoUrl() != null) restaurant.setLogoUrl(request.getLogoUrl());
         if (request.getOpen() != null) restaurant.setOpen(request.getOpen());
         if (request.getCuisineType() != null) restaurant.setCuisineType(request.getCuisineType());
+        if (request.getLatitude() != null) {
+            validateCoordinates(request.getLatitude(), null);
+            restaurant.setLatitude(request.getLatitude());
+        }
+        if (request.getLongitude() != null) {
+            validateCoordinates(null, request.getLongitude());
+            restaurant.setLongitude(request.getLongitude());
+        }
 
+        restaurant.syncGeoLocation();
         Restaurant saved = restaurantRepository.save(restaurant);
         return mapToResponse(saved);
     }
@@ -393,6 +531,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .pincode(r.getPincode())
                 .latitude(r.getLatitude())
                 .longitude(r.getLongitude())
+                .geoLocation(r.getGeoLocation())
                 .location(r.getLocation())
                 .phone(r.getPhone())
                 .cuisineType(r.getCuisineType())
@@ -421,5 +560,30 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .available(m.isAvailable())
                 .category(m.getCategory())
                 .build();
+    }
+
+    private void validateCoordinates(Double latitude, Double longitude) {
+        if (latitude != null && (latitude < -90.0 || latitude > 90.0)) {
+            throw new BadRequestException("Invalid latitude: Must be between -90 and 90 degrees");
+        }
+        if (longitude != null && (longitude < -180.0 || longitude > 180.0)) {
+            throw new BadRequestException("Invalid longitude: Must be between -180 and 180 degrees");
+        }
+    }
+
+    private String buildAddressQuery(String streetAddress, String city, String pincode) {
+        StringBuilder sb = new StringBuilder();
+        if (streetAddress != null && !streetAddress.isBlank()) {
+            sb.append(streetAddress.trim());
+        }
+        if (city != null && !city.isBlank() && !sb.toString().contains(city.trim())) {
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(city.trim());
+        }
+        if (pincode != null && !pincode.isBlank() && !sb.toString().contains(pincode.trim())) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(pincode.trim());
+        }
+        return sb.length() > 0 ? sb.toString() : null;
     }
 }

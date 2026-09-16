@@ -153,13 +153,14 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     public DeliveryResponse createPendingDelivery(String orderId, String restaurantId, String customerEmail) {
-        return createPendingDelivery(orderId, restaurantId, customerEmail, 12.9716, 77.5946, 12.9725, 77.5937);
+        throw new BadRequestException("createPendingDelivery requires explicit restaurant and delivery coordinates.");
     }
 
     @Override
     public DeliveryResponse createPendingDelivery(String orderId, String restaurantId, String customerEmail,
                                                  double restLat, double restLng, double delLat, double delLng) {
-        log.info("Creating pending delivery record for order ID: {}", orderId);
+        log.info("Creating pending delivery record for order ID: {} with rest=[{}, {}], del=[{}, {}]",
+                orderId, restLat, restLng, delLat, delLng);
 
         // Idempotency check to prevent duplicate delivery creation
         Optional<Delivery> existing = deliveryRepository.findByOrderId(orderId);
@@ -168,20 +169,24 @@ public class DeliveryServiceImpl implements DeliveryService {
             return mapToResponse(existing.get());
         }
 
-        double finalRestLat = restLat != 0.0 ? restLat : 12.9716;
-        double finalRestLng = restLng != 0.0 ? restLng : 77.5946;
-        double finalDelLat = delLat != 0.0 ? delLat : 12.9725;
-        double finalDelLng = delLng != 0.0 ? delLng : 77.5937;
+        if (!isValidCoordinate(restLat, restLng)) {
+            log.error("Invalid restaurant coordinates for order {}: lat={}, lng={}", orderId, restLat, restLng);
+            throw new BadRequestException("Invalid restaurant coordinates for delivery creation: [" + restLat + ", " + restLng + "]");
+        }
+        if (!isValidCoordinate(delLat, delLng)) {
+            log.error("Invalid delivery coordinates for order {}: lat={}, lng={}", orderId, delLat, delLng);
+            throw new BadRequestException("Invalid delivery coordinates for delivery creation: [" + delLat + ", " + delLng + "]");
+        }
 
         Delivery delivery = Delivery.builder()
                 .orderId(orderId)
                 .restaurantId(restaurantId)
                 .customerEmail(customerEmail)
                 .status(DeliveryStatus.PENDING)
-                .restaurantLatitude(finalRestLat)
-                .restaurantLongitude(finalRestLng)
-                .deliveryLatitude(finalDelLat)
-                .deliveryLongitude(finalDelLng)
+                .restaurantLatitude(restLat)
+                .restaurantLongitude(restLng)
+                .deliveryLatitude(delLat)
+                .deliveryLongitude(delLng)
                 .build();
 
         Delivery saved = deliveryRepository.save(delivery);
@@ -190,6 +195,10 @@ public class DeliveryServiceImpl implements DeliveryService {
         triggerRiderAssignment(saved.getId());
 
         return mapToResponse(saved);
+    }
+
+    private boolean isValidCoordinate(double lat, double lon) {
+        return lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0 && !(lat == 0.0 && lon == 0.0);
     }
 
     @Override

@@ -22,4 +22,6 @@ public class RestaurantRequest {
     private String closingTime;
     private String logoUrl;
     private Boolean open;
+    private Double latitude;
+    private Double longitude;
 }

@@ -28,6 +28,8 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final RedisTemplate<String, Object> redisTemplate;
     private final org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate;
+    private final com.smarteats.order.client.AuthServiceClient authServiceClient;
+    private final com.smarteats.order.client.RestaurantServiceClient restaurantServiceClient;
 
     @Value("${kafka.topic.order-created:smarteats.order.created}")
     private String orderCreatedTopic;
@@ -40,10 +42,14 @@ public class OrderServiceImpl implements OrderService {
     // Constructor injection
     public OrderServiceImpl(OrderRepository orderRepository,
                             RedisTemplate<String, Object> redisTemplate,
-                            org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate) {
+                            org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate,
+                            com.smarteats.order.client.AuthServiceClient authServiceClient,
+                            com.smarteats.order.client.RestaurantServiceClient restaurantServiceClient) {
         this.orderRepository = orderRepository;
         this.redisTemplate = redisTemplate;
         this.kafkaTemplate = kafkaTemplate;
+        this.authServiceClient = authServiceClient;
+        this.restaurantServiceClient = restaurantServiceClient;
     }
 
     private String getCartKey(String email) {
@@ -123,12 +129,17 @@ public class OrderServiceImpl implements OrderService {
                 .mapToDouble(item -> item.getPrice() * item.getQuantity())
                 .sum();
 
+        // Authoritatively fetch customer's stored coordinates from auth-service
+        com.smarteats.order.client.CustomerCoordinates customerCoords = authServiceClient.getCustomerCoordinates(userEmail);
+
         Order order = Order.builder()
                 .customerEmail(userEmail)
                 .restaurantId(cart.getRestaurantId())
                 .items(cart.getItems())
                 .totalAmount(totalAmount)
                 .status(OrderStatus.CREATED)
+                .deliveryLatitude(customerCoords.getLatitude())
+                .deliveryLongitude(customerCoords.getLongitude())
                 .build();
 
         Order savedOrder = orderRepository.save(order);
@@ -246,19 +257,31 @@ public class OrderServiceImpl implements OrderService {
 
         // Kafka Event Publishing based on transition
         if (targetStatus == OrderStatus.ACCEPTED) {
+            // Retrieve authoritative restaurant coordinates from restaurant-service
+            com.smarteats.order.client.RestaurantCoordinates restCoords = restaurantServiceClient.getRestaurantCoordinates(savedOrder.getRestaurantId());
+
+            // Validate that order has valid delivery coordinates
+            if (savedOrder.getDeliveryLatitude() == null || savedOrder.getDeliveryLongitude() == null ||
+                    (savedOrder.getDeliveryLatitude() == 0.0 && savedOrder.getDeliveryLongitude() == 0.0)) {
+                log.error("Order {} cannot be accepted because delivery coordinates are missing", orderId);
+                throw new BadRequestException("Order cannot be accepted: Missing delivery location coordinates for order ID: " + orderId);
+            }
+
             com.smarteats.common.event.OrderAcceptedEvent event = com.smarteats.common.event.OrderAcceptedEvent.builder()
                     .orderId(savedOrder.getId())
                     .restaurantId(savedOrder.getRestaurantId())
                     .customerEmail(savedOrder.getCustomerEmail())
                     .totalAmount(savedOrder.getTotalAmount())
-                    .restaurantLatitude(12.9716)
-                    .restaurantLongitude(77.5946)
-                    .deliveryLatitude(12.9725)
-                    .deliveryLongitude(77.5937)
+                    .restaurantLatitude(restCoords.getLatitude())
+                    .restaurantLongitude(restCoords.getLongitude())
+                    .deliveryLatitude(savedOrder.getDeliveryLatitude())
+                    .deliveryLongitude(savedOrder.getDeliveryLongitude())
                     .createdAt(savedOrder.getCreatedAt() != null ? savedOrder.getCreatedAt().toString() : java.time.LocalDateTime.now().toString())
                     .build();
             kafkaTemplate.send(orderAcceptedTopic, orderId, event);
-            log.info("Published OrderAcceptedEvent to Kafka topic '{}' for order ID: {}", orderAcceptedTopic, orderId);
+            log.info("Published OrderAcceptedEvent to Kafka topic '{}' with real coordinates for order ID {}: rest=[{}, {}], del=[{}, {}]",
+                    orderAcceptedTopic, orderId, restCoords.getLatitude(), restCoords.getLongitude(),
+                    savedOrder.getDeliveryLatitude(), savedOrder.getDeliveryLongitude());
         } else if (targetStatus == OrderStatus.READY) {
             kafkaTemplate.send(orderReadyTopic, orderId, mapToResponse(savedOrder));
             log.info("Published OrderReady event to Kafka topic '{}' for order ID: {}", orderReadyTopic, orderId);
@@ -283,6 +306,10 @@ public class OrderServiceImpl implements OrderService {
         } else if (current == OrderStatus.READY) {
             if (next != OrderStatus.DISPATCHED && next != OrderStatus.DELIVERED) {
                 throw new BadRequestException("Invalid state transition: Order is already READY.");
+            }
+        } else if (current == OrderStatus.DISPATCHED) {
+            if (next != OrderStatus.DELIVERED) {
+                throw new BadRequestException("Invalid state transition: Cannot change status from DISPATCHED to " + next);
             }
         } else if (current == OrderStatus.REJECTED || current == OrderStatus.CANCELLED) {
             throw new BadRequestException("Invalid state transition: Cannot modify order in terminal state " + current);
@@ -317,6 +344,8 @@ public class OrderServiceImpl implements OrderService {
                 .items(order.getItems())
                 .totalAmount(order.getTotalAmount())
                 .status(order.getStatus())
+                .deliveryLatitude(order.getDeliveryLatitude())
+                .deliveryLongitude(order.getDeliveryLongitude())
                 .createdAt(order.getCreatedAt())
                 .build();
     }

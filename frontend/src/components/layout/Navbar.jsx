@@ -88,8 +88,11 @@ export default function Navbar() {
                 <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
                   {notifications.map((n) => (
                     <div key={n.id} style={{ padding: '0.6rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)', opacity: n.read ? 0.6 : 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{n.title}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>{n.message}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{n.title}</div>
+                        {n.time && <span style={{ fontSize: '0.7rem', color: 'var(--text-sub)', marginLeft: '6px' }}>{n.time}</span>}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)', marginTop: '2px' }}>{n.message}</div>
                     </div>
                   ))}
                 </div>

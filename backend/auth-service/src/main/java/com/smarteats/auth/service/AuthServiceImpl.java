@@ -15,6 +15,8 @@ import com.smarteats.common.event.RestaurantOwnerRegisteredEvent;
 import com.smarteats.common.exception.BadRequestException;
 import com.smarteats.common.exception.ResourceNotFoundException;
 import com.smarteats.common.exception.UnauthorizedException;
+import com.smarteats.common.geocoding.GeocodingResult;
+import com.smarteats.common.geocoding.GeocodingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -32,17 +34,20 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final AuthenticationManager authenticationManager;
     private final AuthEventProducer authEventProducer;
+    private final GeocodingService geocodingService;
 
     public AuthServiceImpl(UserRepository userRepository,
                            PasswordEncoder passwordEncoder,
                            JwtTokenProvider jwtTokenProvider,
                            AuthenticationManager authenticationManager,
-                           AuthEventProducer authEventProducer) {
+                           AuthEventProducer authEventProducer,
+                           GeocodingService geocodingService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.authenticationManager = authenticationManager;
         this.authEventProducer = authEventProducer;
+        this.geocodingService = geocodingService;
     }
 
     @Override
@@ -57,8 +62,51 @@ public class AuthServiceImpl implements AuthService {
         }
 
         boolean isCustomer = request.getRoles().contains(Role.CUSTOMER) && request.getRoles().size() == 1;
+        boolean isRestaurantOwner = request.getRoles().contains(Role.RESTAURANT_OWNER);
         String status = isCustomer ? "ACTIVE" : "PENDING";
         boolean approved = isCustomer;
+
+        // 1. Customer Location Resolution & Geocoding
+        Double custLat = request.getCustomerLatitude() != null ? request.getCustomerLatitude() : (isCustomer ? request.getLatitude() : null);
+        Double custLng = request.getCustomerLongitude() != null ? request.getCustomerLongitude() : (isCustomer ? request.getLongitude() : null);
+
+        if (isCustomer) {
+            String addressQuery = buildAddressQuery(request.getAddress(), null, null, request.getLocation());
+            if (addressQuery != null && !addressQuery.isBlank()) {
+                log.info("Triggering authoritative geocoding for customer registration address: '{}'", addressQuery);
+                GeocodingResult result = geocodingService.geocodeAddress(addressQuery);
+                if (result.isSuccess()) {
+                    custLat = result.getLatitude();
+                    custLng = result.getLongitude();
+                    log.info("Geocoding resolved customer coordinates: lat={}, lon={}", custLat, custLng);
+                } else {
+                    log.warn("Customer address geocoding failed for '{}': {}", addressQuery, result.getErrorMessage());
+                    throw new BadRequestException("Customer address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical address.");
+                }
+            }
+        }
+        validateCoordinates(custLat, custLng);
+
+        // 2. Restaurant Owner Location Resolution & Geocoding
+        Double restLat = request.getLatitude();
+        Double restLng = request.getLongitude();
+
+        if (isRestaurantOwner) {
+            String restAddressQuery = buildAddressQuery(request.getRestaurantAddress(), request.getCity(), request.getPincode(), request.getRestaurantLocation());
+            if (restAddressQuery != null && !restAddressQuery.isBlank()) {
+                log.info("Triggering authoritative geocoding for restaurant owner registration address: '{}'", restAddressQuery);
+                GeocodingResult result = geocodingService.geocodeAddress(restAddressQuery);
+                if (result.isSuccess()) {
+                    restLat = result.getLatitude();
+                    restLng = result.getLongitude();
+                    log.info("Geocoding resolved restaurant owner coordinates: lat={}, lon={}", restLat, restLng);
+                } else {
+                    log.warn("Restaurant owner address geocoding failed for '{}': {}", restAddressQuery, result.getErrorMessage());
+                    throw new BadRequestException("Restaurant address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical restaurant address.");
+                }
+            }
+        }
+        validateCoordinates(restLat, restLng);
 
         // Base user mapping
         User.UserBuilder userBuilder = User.builder()
@@ -71,14 +119,16 @@ public class AuthServiceImpl implements AuthService {
                 .approved(approved)
                 .status(status)
                 .foodPreferences(request.getFoodPreferences())
+                .customerLatitude(custLat)
+                .customerLongitude(custLng)
                 .restaurantName(request.getRestaurantName())
                 .restaurantDescription(request.getDescription())
                 .restaurantAddress(request.getRestaurantAddress())
                 .restaurantLocation(request.getRestaurantLocation())
                 .restaurantCity(request.getCity())
                 .restaurantPincode(request.getPincode())
-                .restaurantLatitude(request.getLatitude())
-                .restaurantLongitude(request.getLongitude())
+                .restaurantLatitude(restLat)
+                .restaurantLongitude(restLng)
                 .cuisineType(request.getCuisineType())
                 .restaurantContact(request.getRestaurantContact())
                 .restaurantEmail(request.getRestaurantEmail())
@@ -230,6 +280,8 @@ public class AuthServiceImpl implements AuthService {
                 .status(user.getStatus() != null ? user.getStatus() : (user.isApproved() ? "ACTIVE" : "PENDING"))
                 .rejectionReason(user.getRejectionReason())
                 .foodPreferences(user.getFoodPreferences())
+                .customerLatitude(user.getCustomerLatitude())
+                .customerLongitude(user.getCustomerLongitude())
                 .restaurantName(user.getRestaurantName())
                 .restaurantDescription(user.getRestaurantDescription())
                 .restaurantAddress(user.getRestaurantAddress())
@@ -256,5 +308,34 @@ public class AuthServiceImpl implements AuthService {
                 .organizationInfo(user.getOrganizationInfo())
                 .foodRescueInfo(user.getFoodRescueInfo())
                 .build();
+    }
+
+    private void validateCoordinates(Double latitude, Double longitude) {
+        if (latitude != null && (latitude < -90.0 || latitude > 90.0)) {
+            throw new BadRequestException("Invalid latitude: Must be between -90 and 90 degrees");
+        }
+        if (longitude != null && (longitude < -180.0 || longitude > 180.0)) {
+            throw new BadRequestException("Invalid longitude: Must be between -180 and 180 degrees");
+        }
+    }
+
+    private String buildAddressQuery(String streetAddress, String city, String pincode, String location) {
+        StringBuilder sb = new StringBuilder();
+        if (streetAddress != null && !streetAddress.isBlank()) {
+            sb.append(streetAddress.trim());
+        }
+        if (location != null && !location.isBlank() && !sb.toString().contains(location.trim())) {
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(location.trim());
+        }
+        if (city != null && !city.isBlank() && !sb.toString().contains(city.trim())) {
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(city.trim());
+        }
+        if (pincode != null && !pincode.isBlank() && !sb.toString().contains(pincode.trim())) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(pincode.trim());
+        }
+        return sb.length() > 0 ? sb.toString() : null;
     }
 }

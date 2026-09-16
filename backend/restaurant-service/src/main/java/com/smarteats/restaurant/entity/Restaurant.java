@@ -7,6 +7,9 @@ import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.mongodb.core.geo.GeoJsonPoint;
+import org.springframework.data.mongodb.core.index.GeoSpatialIndexType;
+import org.springframework.data.mongodb.core.index.GeoSpatialIndexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.io.Serializable;
@@ -32,6 +35,10 @@ public class Restaurant implements Serializable {
     private String pincode;
     private Double latitude;
     private Double longitude;
+
+    @GeoSpatialIndexed(type = GeoSpatialIndexType.GEO_2DSPHERE)
+    private GeoJsonPoint geoLocation;
+
     private String location;
     private String phone;
     private String cuisineType;
@@ -59,4 +66,15 @@ public class Restaurant implements Serializable {
 
     @LastModifiedDate
     private LocalDateTime updatedAt;
+
+    public void syncGeoLocation() {
+        if (this.latitude != null && this.longitude != null 
+                && this.latitude >= -90.0 && this.latitude <= 90.0 
+                && this.longitude >= -180.0 && this.longitude <= 180.0) {
+            // GeoJSON coordinate order: [LONGITUDE, LATITUDE]
+            this.geoLocation = new GeoJsonPoint(this.longitude, this.latitude);
+        } else {
+            this.geoLocation = null;
+        }
+    }
 }

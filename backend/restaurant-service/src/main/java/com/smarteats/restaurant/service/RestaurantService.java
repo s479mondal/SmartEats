@@ -14,6 +14,7 @@ public interface RestaurantService {
     RestaurantResponse updateRestaurant(String id, RestaurantRequest request, String ownerEmail);
     void deleteRestaurant(String id, String ownerEmail);
     List<RestaurantResponse> getAllApprovedRestaurants();
+    List<RestaurantResponse> findNearbyRestaurants(Double latitude, Double longitude, Double radiusKm);
     List<RestaurantResponse> getRestaurantsByOwner(String ownerEmail);
 
     RestaurantResponse getMyRestaurant(String ownerEmail);

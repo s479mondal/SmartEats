@@ -18,11 +18,13 @@ spring:
               - OPTIONS
             allowedHeaders: "*"
       routes:
-        # Auth Service Route (unsecured)
+        # Auth Service Route
         - id: auth-service
           uri: http://localhost:8081
           predicates:
             - Path=/api/auth/**
+          filters:
+            - AuthenticationFilter
 
         # Admin Service Route
         - id: admin-service

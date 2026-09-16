@@ -51,6 +51,8 @@ public class User {
 
     // Customer Specific Fields
     private List<String> foodPreferences;
+    private Double customerLatitude;
+    private Double customerLongitude;
 
     // Restaurant Owner Specific Fields (Section B & C)
     private String restaurantName;

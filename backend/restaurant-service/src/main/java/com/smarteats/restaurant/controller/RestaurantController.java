@@ -90,6 +90,16 @@ public class RestaurantController {
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 
+    @GetMapping("/nearby")
+    public ResponseEntity<ApiResponse<List<RestaurantResponse>>> getNearby(
+            @RequestParam(name = "lat", required = false) Double lat,
+            @RequestParam(name = "lng", required = false) Double lng,
+            @RequestParam(name = "radius", required = false, defaultValue = "5.0") Double radius) {
+        log.info("Request for nearby restaurants: lat={}, lng={}, radius={}km", lat, lng, radius);
+        List<RestaurantResponse> list = restaurantService.findNearbyRestaurants(lat, lng, radius);
+        return ResponseEntity.ok(ApiResponse.success(list, "Nearby restaurants retrieved successfully"));
+    }
+
     @GetMapping("/my-restaurants")
     public ResponseEntity<ApiResponse<List<RestaurantResponse>>> getMyRestaurants(
             @RequestHeader("X-User-Email") String email,

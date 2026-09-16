@@ -21,5 +21,7 @@ public class OrderResponse {
     private List<CartItem> items;
     private double totalAmount;
     private OrderStatus status;
+    private Double deliveryLatitude;
+    private Double deliveryLongitude;
     private LocalDateTime createdAt;
 }

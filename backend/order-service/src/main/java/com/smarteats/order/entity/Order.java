@@ -27,6 +27,9 @@ public class Order {
     private double totalAmount;
     private OrderStatus status;
 
+    private Double deliveryLatitude;
+    private Double deliveryLongitude;
+
     @CreatedDate
     private LocalDateTime createdAt;
 

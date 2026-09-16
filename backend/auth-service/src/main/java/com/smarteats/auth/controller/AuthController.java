@@ -52,9 +52,28 @@ public class AuthController {
     }
 
     @GetMapping("/profile")
-    public ResponseEntity<ApiResponse<UserDto>> getProfile(@RequestParam("email") String email) {
-        log.info("Fetching profile for email: {}", email);
-        UserDto userDto = authService.getUserByEmail(email);
+    public ResponseEntity<ApiResponse<UserDto>> getProfile(
+            @RequestParam(value = "email", required = false) String email,
+            @RequestHeader(value = "X-User-Email", required = false) String authEmail,
+            @RequestHeader(value = "X-User-Roles", required = false) String authRoles) {
+
+        String targetEmail = (email != null && !email.isBlank()) ? email.trim() : authEmail;
+        if (targetEmail == null || targetEmail.isBlank()) {
+            throw new com.smarteats.common.exception.BadRequestException("User email parameter is required");
+        }
+
+        // Security / IDOR Prevention:
+        // When request traverses the API Gateway with verified identity, enforce that users can only view their own profile unless ADMIN
+        if (authEmail != null && !authEmail.isBlank()) {
+            boolean isAdmin = authRoles != null && (authRoles.contains("ADMIN") || authRoles.contains("ROLE_ADMIN"));
+            if (!authEmail.equalsIgnoreCase(targetEmail) && !isAdmin) {
+                log.warn("IDOR attempt: User '{}' attempted to view profile of '{}'", authEmail, targetEmail);
+                throw new com.smarteats.common.exception.ForbiddenException("Access Denied: You are not authorized to view another user's profile");
+            }
+        }
+
+        log.info("Fetching profile for email: {}", targetEmail);
+        UserDto userDto = authService.getUserByEmail(targetEmail);
         return ResponseEntity.ok(ApiResponse.success(userDto, "User profile fetched successfully"));
     }
 

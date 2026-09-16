@@ -201,10 +201,10 @@ export default function DriverPortal() {
                         👤 <strong>Customer Email:</strong> {delivery.customerEmail || 'N/A'}
                       </p>
                       <p style={{ margin: '0 0 6px 0', color: 'var(--text-sub)' }}>
-                        🧭 <strong>Pickup Coordinates:</strong> Lat {delivery.restaurantLatitude || 12.9716}, Lng {delivery.restaurantLongitude || 77.5946}
+                        🧭 <strong>Pickup Coordinates:</strong> Lat {delivery.restaurantLatitude != null ? delivery.restaurantLatitude : 'N/A'}, Lng {delivery.restaurantLongitude != null ? delivery.restaurantLongitude : 'N/A'}
                       </p>
                       <p style={{ margin: 0, color: 'var(--text-sub)' }}>
-                        🏁 <strong>Dropoff Coordinates:</strong> Lat {delivery.deliveryLatitude || 12.9725}, Lng {delivery.deliveryLongitude || 77.5937}
+                        🏁 <strong>Dropoff Coordinates:</strong> Lat {delivery.deliveryLatitude != null ? delivery.deliveryLatitude : 'N/A'}, Lng {delivery.deliveryLongitude != null ? delivery.deliveryLongitude : 'N/A'}
                       </p>
                     </div>
                   </div>

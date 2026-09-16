@@ -27,6 +27,8 @@ public class UserDto {
 
     // Role-specific fields
     private List<String> foodPreferences;
+    private Double customerLatitude;
+    private Double customerLongitude;
     private String restaurantName;
     private String restaurantDescription;
     private String restaurantAddress;

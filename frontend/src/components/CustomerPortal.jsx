@@ -3,28 +3,47 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { rescueApi, orderApi } from '../api/orderApi';
 import { restaurantApi } from '../api/restaurantApi';
+import RestaurantCard from './restaurant/RestaurantCard';
 
-export default function CustomerPortal({ cart, setCart, addToCart, removeFromCart }) {
+export default function CustomerPortal({ cart = [], setCart, addToCart, removeFromCart }) {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('ALL');
   const [menuItems, setMenuItems] = useState([]);
-  const [restaurants, setRestaurants] = useState([]);
   const [rescueOffers, setRescueOffers] = useState([]);
   const [activeOrder, setActiveOrder] = useState(null);
   const [customerOrders, setCustomerOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Discovery Mode State
+  const [discoveryMode, setDiscoveryMode] = useState('NEARBY'); // 'NEARBY' | 'ALL'
+  const [radius, setRadius] = useState(5); // 5, 10, 20, 50 km
+  const [discoveredRestaurants, setDiscoveredRestaurants] = useState([]);
+  const [restaurantsLoading, setRestaurantsLoading] = useState(false);
+  const [restaurantsError, setRestaurantsError] = useState(null);
+
+  // Customer stored coordinates extraction
+  const customerLat = user?.customerLatitude ?? user?.latitude;
+  const customerLng = user?.customerLongitude ?? user?.longitude;
+  const hasValidCoordinates = (
+    customerLat !== null &&
+    customerLat !== undefined &&
+    customerLng !== null &&
+    customerLng !== undefined &&
+    !isNaN(Number(customerLat)) &&
+    !isNaN(Number(customerLng)) &&
+    Number(customerLat) !== 0 &&
+    Number(customerLng) !== 0
+  );
+
+  // Initial Load: Menu items, rescue offers, and customer orders
   useEffect(() => {
-    // Fetch menu, restaurants, rescue offers, and customer orders
     Promise.all([
       restaurantApi.getMenu('all').catch(() => []),
-      restaurantApi.getRestaurants().catch(() => []),
       rescueApi.getRescueOffers().catch(() => []),
       orderApi.getCustomerOrders().catch(() => [])
-    ]).then(([menuRes, restRes, rescueRes, ordersRes]) => {
+    ]).then(([menuRes, rescueRes, ordersRes]) => {
       setMenuItems(menuRes?.data || menuRes || []);
-      setRestaurants(restRes?.data || restRes || []);
       setRescueOffers(rescueRes?.data || rescueRes || []);
       const fetchedOrders = ordersRes?.data || ordersRes || [];
       setCustomerOrders(Array.isArray(fetchedOrders) ? fetchedOrders : []);
@@ -35,6 +54,56 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
     }).finally(() => setLoading(false));
   }, []);
 
+  // Fetch Restaurants based on Discovery Mode & Radius
+  useEffect(() => {
+    let isMounted = true;
+    const fetchRestaurants = async () => {
+      setRestaurantsLoading(true);
+      setRestaurantsError(null);
+
+      try {
+        if (discoveryMode === 'NEARBY') {
+          if (!hasValidCoordinates) {
+            // Do NOT call the nearby API when coordinates are missing
+            setDiscoveredRestaurants([]);
+            setRestaurantsLoading(false);
+            return;
+          }
+          const data = await restaurantApi.getNearbyRestaurants(
+            Number(customerLat),
+            Number(customerLng),
+            radius
+          );
+          if (isMounted) {
+            setDiscoveredRestaurants(Array.isArray(data) ? data : []);
+          }
+        } else {
+          // 'ALL' Mode: fetch all approved restaurants
+          const data = await restaurantApi.getRestaurants();
+          if (isMounted) {
+            setDiscoveredRestaurants(Array.isArray(data) ? data : []);
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          console.error('Failed to load restaurants:', err);
+          setRestaurantsError('Unable to load restaurants. Please try again later.');
+          setDiscoveredRestaurants([]);
+        }
+      } finally {
+        if (isMounted) {
+          setRestaurantsLoading(false);
+        }
+      }
+    };
+
+    fetchRestaurants();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [discoveryMode, radius, hasValidCoordinates, customerLat, customerLng]);
+
   const filteredItems = menuItems.filter(item => {
     const matchesSearch = item.name?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = activeCategory === 'ALL' || 
@@ -43,10 +112,10 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
     return matchesSearch && matchesCategory;
   });
 
-  const cartTotal = cart.reduce((sum, i) => sum + (i.price * (i.qty || 1)), 0);
+  const cartTotal = (cart || []).reduce((sum, i) => sum + (i.price * (i.qty || 1)), 0);
 
   const handleCheckout = async () => {
-    if (cart.length === 0) return;
+    if (!cart || cart.length === 0) return;
     try {
       const orderRes = await orderApi.createOrder({
         customerEmail: user?.email || 'customer@smarteats.com',
@@ -69,25 +138,38 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
       <div className="hero-banner" style={{ padding: '2.5rem 2rem', marginBottom: '2rem' }}>
         <div>
           <h1 className="hero-title">Hello, {user?.name || 'Customer'} 👋</h1>
-          <p className="hero-subtitle" style={{ fontSize: '1.1rem', marginTop: '0.4rem' }}>What are you craving today?</p>
+          <p className="hero-subtitle" style={{ fontSize: '1.1rem', marginTop: '0.4rem' }}>
+            What are you craving today?
+          </p>
           <div style={{ marginTop: '1.2rem', maxWidth: '500px' }}>
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="🔍 Search food or restaurant..."
-              style={{ width: '100%', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid var(--bg-card-border)', color: '#fff', padding: '0.8rem 1.2rem', borderRadius: '12px', fontFamily: 'var(--font-body)' }}
+              style={{
+                width: '100%',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid var(--bg-card-border)',
+                color: '#fff',
+                padding: '0.8rem 1.2rem',
+                borderRadius: '12px',
+                fontFamily: 'var(--font-body)'
+              }}
             />
           </div>
         </div>
         <div style={{ fontSize: '5rem' }}>🍛</div>
       </div>
 
-      {/* Recommended For You Section */}
+      {/* Recommended For You Category Bar */}
       <div style={{ marginBottom: '2.5rem' }}>
-        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', marginBottom: '1rem' }}>Recommended For You</h2>
+        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', marginBottom: '1rem' }}>
+          Recommended For You
+        </h2>
         <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
           {[
+            { title: '🍽️ All Dishes', cat: 'ALL' },
             { title: '🍛 Paneer Biryani', cat: 'MAIN_COURSE' },
             { title: '🍕 Pizza', cat: 'PIZZA' },
             { title: '🥗 Healthy Meals', cat: 'HEALTHY' },
@@ -95,7 +177,7 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
           ].map((rec, i) => (
             <button
               key={i}
-              className="cat-btn"
+              className={`cat-btn ${activeCategory === rec.cat ? 'active' : ''}`}
               style={{ padding: '0.8rem 1.5rem', fontSize: '0.95rem', flexShrink: 0 }}
               onClick={() => setActiveCategory(rec.cat)}
             >
@@ -112,7 +194,9 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
             <div>
               <span className="badge badge-ai" style={{ marginBottom: '0.4rem' }}>Active Order</span>
               <h3 style={{ fontFamily: 'var(--font-heading)' }}>Order #{activeOrder.id || '1024'}</h3>
-              <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', marginTop: '4px' }}>Status: {activeOrder.status || 'PREPARING'}... • Estimated arrival: {activeOrder.etaMinutes || 28} mins</p>
+              <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', marginTop: '4px' }}>
+                Status: {activeOrder.status || 'PREPARING'}... • Estimated arrival: {activeOrder.etaMinutes || 28} mins
+              </p>
             </div>
             <Link to="/customer/dashboard" className="btn-action" style={{ textDecoration: 'none', padding: '0.6rem 1.2rem', width: 'auto' }}>
               Track Order
@@ -120,6 +204,214 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
           </div>
         </div>
       )}
+
+      {/* Restaurant Discovery & Proximity Section (Step 7 Core Feature) */}
+      <div className="card" style={{ marginBottom: '2.5rem', borderColor: 'rgba(0, 242, 254, 0.3)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.2rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.4rem' }}>
+              <span className="badge badge-ai">
+                {discoveryMode === 'NEARBY' ? '📍 Proximity Discovery' : '🌐 All Directory'}
+              </span>
+              {discoveryMode === 'NEARBY' && hasValidCoordinates && (
+                <span style={{ fontSize: '0.8rem', color: 'var(--accent-green)', fontWeight: 700 }}>
+                  ● GPS Grounded
+                </span>
+              )}
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.6rem' }}>
+              Discover Restaurants
+            </h2>
+            {discoveryMode === 'NEARBY' && hasValidCoordinates && (
+              <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', marginTop: '4px' }}>
+                Showing restaurants within <strong>{radius} km</strong> of your saved address ({user?.address || user?.city || `${Number(customerLat).toFixed(3)}, ${Number(customerLng).toFixed(3)}`})
+              </p>
+            )}
+          </div>
+
+          {/* Mode Switcher: Nearby vs All */}
+          <div className="role-nav">
+            <button
+              className={`role-btn ${discoveryMode === 'NEARBY' ? 'active' : ''}`}
+              onClick={() => setDiscoveryMode('NEARBY')}
+            >
+              📍 Nearby Restaurants
+            </button>
+            <button
+              className={`role-btn ${discoveryMode === 'ALL' ? 'active' : ''}`}
+              onClick={() => setDiscoveryMode('ALL')}
+            >
+              🌐 All Restaurants
+            </button>
+          </div>
+        </div>
+
+        {/* Radius Selector Pills (Visible in NEARBY mode when coordinates present) */}
+        {discoveryMode === 'NEARBY' && hasValidCoordinates && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            marginBottom: '1.5rem',
+            flexWrap: 'wrap',
+            padding: '0.75rem 1rem',
+            background: 'rgba(255, 255, 255, 0.03)',
+            borderRadius: '12px',
+            border: '1px solid var(--bg-card-border)'
+          }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-sub)', fontWeight: 600 }}>
+              Search Radius:
+            </span>
+            {[5, 10, 20, 50].map((r) => (
+              <button
+                key={r}
+                onClick={() => setRadius(r)}
+                style={{
+                  background: radius === r ? 'var(--primary-gradient)' : 'rgba(255, 255, 255, 0.05)',
+                  color: radius === r ? '#fff' : 'var(--text-sub)',
+                  border: radius === r ? 'none' : '1px solid var(--bg-card-border)',
+                  padding: '4px 14px',
+                  borderRadius: '20px',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: radius === r ? '0 2px 10px rgba(255, 94, 58, 0.3)' : 'none',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {r} km {r === 5 ? '(Default)' : ''}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Missing Customer Coordinates View (Strictly handled, NO fake coordinates) */}
+        {discoveryMode === 'NEARBY' && !hasValidCoordinates && (
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '16px',
+            padding: '2.5rem 1.5rem',
+            textAlign: 'center',
+            color: '#f8fafc'
+          }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.6rem' }}>📍</div>
+            <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', color: '#fbbf24', marginBottom: '0.5rem' }}>
+              Your location is not available. Please update your address to discover nearby restaurants.
+            </h3>
+            <p style={{ color: 'var(--text-sub)', fontSize: '0.88rem', maxWidth: '540px', margin: '0 auto 1.5rem auto', lineHeight: '1.6' }}>
+              SmartEats uses your stored profile coordinates from registration to discover kitchen partners near you. Please update your address details or browse the full restaurant directory.
+            </p>
+            <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setDiscoveryMode('ALL')}
+                className="cat-btn"
+                style={{ background: 'rgba(255, 255, 255, 0.1)', color: '#fff', padding: '0.6rem 1.4rem' }}
+              >
+                Browse All Restaurants
+              </button>
+              <Link
+                to="/customer/preferences"
+                className="btn-action"
+                style={{ width: 'auto', padding: '0.6rem 1.4rem', marginTop: 0, textDecoration: 'none', display: 'inline-block' }}
+              >
+                Manage Preferences
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {restaurantsLoading && (
+          <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-sub)' }}>
+            <div style={{ fontSize: '2.2rem', marginBottom: '0.6rem' }}>⏳</div>
+            <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>
+              {discoveryMode === 'NEARBY'
+                ? `Searching restaurants within ${radius} km of your coordinates...`
+                : 'Loading approved restaurant directory...'}
+            </p>
+          </div>
+        )}
+
+        {/* Error State */}
+        {!restaurantsLoading && restaurantsError && (
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: '16px',
+            padding: '1.8rem',
+            textAlign: 'center',
+            color: '#f87171'
+          }}>
+            <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{restaurantsError}</p>
+            <button
+              onClick={() => setDiscoveryMode(discoveryMode === 'NEARBY' ? 'ALL' : 'NEARBY')}
+              className="cat-btn"
+              style={{ marginTop: '0.8rem' }}
+            >
+              Switch Mode / Retry
+            </button>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!restaurantsLoading && !restaurantsError && (discoveryMode === 'ALL' || hasValidCoordinates) && discoveredRestaurants.length === 0 && (
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.02)',
+            border: '1px dashed var(--bg-card-border)',
+            borderRadius: '16px',
+            padding: '2.5rem 1rem',
+            textAlign: 'center',
+            color: 'var(--text-sub)'
+          }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🍽️</div>
+            <h3 style={{ fontFamily: 'var(--font-heading)', color: '#fff', fontSize: '1.2rem', marginBottom: '0.4rem' }}>
+              {discoveryMode === 'NEARBY'
+                ? `No restaurants found within ${radius} km.`
+                : 'No approved restaurants found.'}
+            </h3>
+            <p style={{ fontSize: '0.88rem', maxWidth: '480px', margin: '0 auto' }}>
+              {discoveryMode === 'NEARBY'
+                ? 'Try expanding your search radius to 10 km, 20 km, or 50 km to discover more kitchens in your city.'
+                : 'Check back soon as new kitchen partners join the SmartEats network.'}
+            </p>
+            {discoveryMode === 'NEARBY' && radius < 50 && (
+              <button
+                onClick={() => setRadius(r => r === 5 ? 10 : (r === 10 ? 20 : 50))}
+                className="cat-btn"
+                style={{ marginTop: '1.2rem', background: 'rgba(0, 242, 254, 0.1)', color: 'var(--accent-cyan)' }}
+              >
+                Expand Search Radius →
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Discovered Restaurants Grid */}
+        {!restaurantsLoading && !restaurantsError && (discoveryMode === 'ALL' || hasValidCoordinates) && discoveredRestaurants.length > 0 && (
+          <div className="grid-3">
+            {discoveredRestaurants
+              .filter(r => {
+                if (!searchQuery) return true;
+                const q = searchQuery.toLowerCase();
+                return (
+                  r.name?.toLowerCase().includes(q) ||
+                  r.cuisineType?.toLowerCase().includes(q) ||
+                  r.cuisine?.toLowerCase().includes(q) ||
+                  r.address?.toLowerCase().includes(q) ||
+                  r.city?.toLowerCase().includes(q)
+                );
+              })
+              .map((restaurant) => (
+                <RestaurantCard
+                  key={restaurant.id || restaurant._id}
+                  restaurant={restaurant}
+                  dark={true}
+                />
+              ))}
+          </div>
+        )}
+      </div>
 
       {/* Food Rescue Near You Section */}
       <div className="card" style={{ marginBottom: '2.5rem', borderColor: 'rgba(16, 185, 129, 0.4)', background: 'rgba(16, 185, 129, 0.05)' }}>
@@ -158,7 +450,7 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
       {/* Main Grid: Food Menu & Cart */}
       <div className="grid-2">
         <div>
-          <h2 style={{ fontFamily: 'var(--font-heading)', marginBottom: '1rem' }}>Nearby Restaurants & Dishes</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', marginBottom: '1rem' }}>Fresh Dishes & Menu</h2>
           {loading ? (
             <div style={{ color: 'var(--text-sub)', textAlign: 'center', padding: '2rem 0' }}>Loading fresh dishes...</div>
           ) : (
@@ -185,13 +477,15 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
             <h3 style={{ fontFamily: 'var(--font-heading)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>🛒 Shopping Cart</span>
               <span style={{ fontSize: '0.8rem', background: 'var(--primary)', color: '#fff', padding: '2px 10px', borderRadius: '20px' }}>
-                {cart.reduce((s, i) => s + (i.qty || 1), 0)} Items
+                {(cart || []).reduce((s, i) => s + (i.qty || 1), 0)} Items
               </span>
             </h3>
 
             <div style={{ minHeight: '80px', maxHeight: '200px', overflowY: 'auto', marginBottom: '1rem' }}>
-              {cart.length === 0 ? (
-                <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' }}>Your cart is empty. Add delicious items to get started!</p>
+              {(!cart || cart.length === 0) ? (
+                <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' }}>
+                  Your cart is empty. Add delicious items to get started!
+                </p>
               ) : (
                 cart.map(item => (
                   <div key={item.id || item._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem' }}>
@@ -201,7 +495,7 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontWeight: 700, color: 'var(--accent-cyan)' }}>₹{item.price * (item.qty || 1)}</span>
-                      <button onClick={() => removeFromCart(item.id || item._id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer' }}>✕</button>
+                      <button onClick={() => removeFromCart && removeFromCart(item.id || item._id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer' }}>✕</button>
                     </div>
                   </div>
                 ))
@@ -213,7 +507,7 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
               <span style={{ color: 'var(--accent-cyan)', fontSize: '1.1rem' }}>₹{cartTotal}</span>
             </div>
 
-            <button className="btn-action" disabled={cart.length === 0} onClick={handleCheckout}>
+            <button className="btn-action" disabled={!cart || cart.length === 0} onClick={handleCheckout}>
               Proceed to Payment & Checkout
             </button>
           </div>
@@ -257,3 +551,4 @@ export default function CustomerPortal({ cart, setCart, addToCart, removeFromCar
     </div>
   );
 }
+

@@ -6,8 +6,20 @@ export const restaurantApi = {
     return response.data?.data || response.data || [];
   },
 
+  getNearbyRestaurants: async (latitude, longitude, radius = 5) => {
+    const response = await apiClient.get('/api/restaurants/nearby', {
+      params: {
+        lat: latitude,
+        lng: longitude,
+        radius: radius
+      }
+    });
+    return response.data?.data || response.data || [];
+  },
+
   getMenu: async (restaurantId) => {
     const response = await apiClient.get(`/api/restaurants/${restaurantId}/menu`);
     return response.data?.data || response.data || [];
   }
 };
+

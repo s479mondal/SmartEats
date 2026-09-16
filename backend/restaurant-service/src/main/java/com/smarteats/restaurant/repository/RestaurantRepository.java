@@ -1,6 +1,9 @@
 package com.smarteats.restaurant.repository;
 
 import com.smarteats.restaurant.entity.Restaurant;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.geo.Point;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
@@ -11,4 +14,6 @@ public interface RestaurantRepository extends MongoRepository<Restaurant, String
     List<Restaurant> findByApproved(boolean approved);
     List<Restaurant> findByOwnerEmail(String ownerEmail);
     List<Restaurant> findByOwnerId(String ownerId);
+
+    List<Restaurant> findByApprovedTrueAndGeoLocationNear(Point point, Distance distance);
 }
