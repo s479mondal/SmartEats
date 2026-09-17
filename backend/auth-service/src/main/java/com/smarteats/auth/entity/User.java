@@ -53,6 +53,7 @@ public class User {
     private List<String> foodPreferences;
     private Double customerLatitude;
     private Double customerLongitude;
+    private String locationSource;
 
     // Restaurant Owner Specific Fields (Section B & C)
     private String restaurantName;
@@ -82,6 +83,10 @@ public class User {
     private String ngoName;
     private String contactPerson;
     private String ngoAddress;
+    private String ngoCity;
+    private String ngoPincode;
+    private Double ngoLatitude;
+    private Double ngoLongitude;
     private String organizationInfo;
     private String foodRescueInfo;
 

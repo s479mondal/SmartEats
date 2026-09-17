@@ -102,6 +102,11 @@ public class AdminController {
                 ngoMap.put("phone", user.getPhone() != null ? user.getPhone() : "N/A");
                 ngoMap.put("address", user.getNgoAddress() != null ? user.getNgoAddress() : user.getAddress());
                 ngoMap.put("location", user.getLocation() != null ? user.getLocation() : "N/A");
+                ngoMap.put("city", user.getNgoCity() != null ? user.getNgoCity() : "N/A");
+                ngoMap.put("pincode", user.getNgoPincode() != null ? user.getNgoPincode() : "N/A");
+                ngoMap.put("latitude", user.getNgoLatitude());
+                ngoMap.put("longitude", user.getNgoLongitude());
+                ngoMap.put("locationSource", user.getLocationSource() != null ? user.getLocationSource() : "USER_CONFIRMED_MAP");
                 ngoMap.put("organizationInfo", user.getOrganizationInfo() != null ? user.getOrganizationInfo() : "Food Rescue NGO");
                 ngoMap.put("foodRescueInfo", user.getFoodRescueInfo() != null ? user.getFoodRescueInfo() : "Active Rescue Volunteer");
                 ngoMap.put("status", status);

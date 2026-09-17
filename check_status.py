@@ -22,11 +22,12 @@ print("=" * 60)
 
 all_ok = True
 for name, port in ports:
-    s = socket.socket()
-    s.settimeout(1.0)
-    res = s.connect_ex(("127.0.0.1", port))
-    s.close()
-    is_up = (res == 0)
+    try:
+        s = socket.create_connection(("localhost", port), timeout=1.0)
+        s.close()
+        is_up = True
+    except OSError:
+        is_up = False
     if not is_up:
         all_ok = False
     status_str = "[ONLINE / LISTENING]" if is_up else "[OFFLINE]"

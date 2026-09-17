@@ -1,6 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import LocationSearch from '../../components/common/LocationSearch';
+import LocationPicker from '../../components/common/LocationPicker';
+import { authApi } from '../../api/authApi';
+import { Loader2, CheckCircle2, AlertCircle, MapPin, Check } from 'lucide-react';
 
 export default function Register() {
   const [selectedRole, setSelectedRole] = useState('CUSTOMER');
@@ -13,6 +17,22 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [address, setAddress] = useState('');
   const [location, setLocation] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState(null);
+
+  // Customer Specific Location & Address Fields
+  const [customerHouse, setCustomerHouse] = useState('');
+  const [customerStreet, setCustomerStreet] = useState('');
+  const [customerLandmark, setCustomerLandmark] = useState('');
+  const [customerCity, setCustomerCity] = useState('');
+  const [customerDistrict, setCustomerDistrict] = useState('');
+  const [customerState, setCustomerState] = useState('');
+  const [customerPincode, setCustomerPincode] = useState('');
+  const [confirmedCustomerLocation, setConfirmedCustomerLocation] = useState(null);
+
+  // PIN Code Lookup State
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinStatus, setPinStatus] = useState(null); // { type: 'success'|'warning'|'error', message: string, postOffices?: string }
+  const pinAbortControllerRef = useRef(null);
 
   // Customer Specific Fields
   const [foodPreferences, setFoodPreferences] = useState(['Vegetarian']);
@@ -29,6 +49,12 @@ export default function Register() {
   const [openingTime, setOpeningTime] = useState('10:00 AM');
   const [closingTime, setClosingTime] = useState('10:00 PM');
   const [logoUrl, setLogoUrl] = useState('');
+  const [confirmedRestaurantLocation, setConfirmedRestaurantLocation] = useState(null);
+  const [restaurantPinLoading, setRestaurantPinLoading] = useState(false);
+  const [restaurantPinStatus, setRestaurantPinStatus] = useState(null);
+  const [restaurantDistrict, setRestaurantDistrict] = useState('');
+  const [restaurantState, setRestaurantState] = useState('');
+  const restaurantPinAbortRef = useRef(null);
 
   // Section C: Verification Information
   const [businessRegistrationNumber, setBusinessRegistrationNumber] = useState('');
@@ -44,6 +70,14 @@ export default function Register() {
   const [ngoName, setNgoName] = useState('');
   const [contactPerson, setContactPerson] = useState('');
   const [ngoAddress, setNgoAddress] = useState('');
+  const [ngoCity, setNgoCity] = useState('');
+  const [ngoPincode, setNgoPincode] = useState('');
+  const [ngoDistrict, setNgoDistrict] = useState('');
+  const [ngoState, setNgoState] = useState('');
+  const [confirmedNgoLocation, setConfirmedNgoLocation] = useState(null);
+  const [ngoPinLoading, setNgoPinLoading] = useState(false);
+  const [ngoPinStatus, setNgoPinStatus] = useState(null);
+  const ngoPinAbortRef = useRef(null);
   const [organizationInfo, setOrganizationInfo] = useState('');
   const [foodRescueInfo, setFoodRescueInfo] = useState('');
 
@@ -52,6 +86,303 @@ export default function Register() {
   const [error, setError] = useState('');
   const { register } = useAuth();
   const navigate = useNavigate();
+
+  const handleCustomerPincodeChange = async (e) => {
+    const rawVal = e.target.value;
+    // 1. Accept only numeric digits, max length 6
+    const numericVal = rawVal.replace(/\D/g, '').slice(0, 6);
+    setCustomerPincode(numericVal);
+
+    if (pinAbortControllerRef.current) {
+      pinAbortControllerRef.current.abort();
+    }
+
+    if (numericVal.length < 6) {
+      setPinStatus(null);
+      setPinLoading(false);
+      return;
+    }
+
+    // When exactly 6 numeric digits are entered:
+    setPinLoading(true);
+    setPinStatus(null);
+
+    const controller = new AbortController();
+    pinAbortControllerRef.current = controller;
+
+    try {
+      const result = await authApi.lookupPincode(numericVal, controller.signal);
+      if (result && result.success) {
+        // Auto-fill City/Town, District, State without overwriting existing manual edits permanently
+        if (result.city) {
+          setCustomerCity(result.city);
+        }
+        if (result.district) {
+          setCustomerDistrict(result.district);
+        }
+        if (result.state) {
+          setCustomerState(result.state);
+        }
+
+        const poNames = Array.isArray(result.postOffices) && result.postOffices.length > 0 
+          ? result.postOffices.slice(0, 3).join(', ') + (result.postOffices.length > 3 ? ` +${result.postOffices.length - 3} more` : '')
+          : '';
+
+        setPinStatus({
+          type: 'success',
+          message: `Location found for PIN ${numericVal}${result.district ? ` (${result.district}, ${result.state})` : ''}`,
+          postOffices: poNames
+        });
+      } else {
+        setPinStatus({
+          type: 'warning',
+          message: result?.message || 'No location found for this PIN code.'
+        });
+      }
+    } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        return;
+      }
+      console.warn('PIN lookup issue:', err);
+      setPinStatus({
+        type: 'error',
+        message: 'Unable to verify PIN right now. You can enter the location manually.'
+      });
+    } finally {
+      setPinLoading(false);
+    }
+  };
+
+  const handleCustomerLocationSelect = (locCandidate) => {
+    setSelectedLocation(locCandidate);
+    if (locCandidate) {
+      const details = locCandidate.addressDetails || {};
+      
+      // Auto-populate area / street if empty
+      const detectedStreet = details.road || details.suburb || details.village || details.neighbourhood || (locCandidate.isParentArea ? locCandidate.matchedQuery : '');
+      if (detectedStreet && !customerStreet) {
+        setCustomerStreet(detectedStreet);
+      }
+      
+      // Auto-populate city if empty
+      const detectedCity = details.city || details.town || details.county || details.state_district || details.municipality || '';
+      if (detectedCity && !customerCity) {
+        setCustomerCity(detectedCity);
+      }
+
+      // Auto-populate district if empty
+      const detectedDistrict = details.state_district || details.county || '';
+      if (detectedDistrict && !customerDistrict) {
+        setCustomerDistrict(detectedDistrict);
+      }
+      
+      // Auto-populate state if empty
+      if (details.state && !customerState) {
+        setCustomerState(details.state);
+      }
+      
+      // Auto-populate pincode if empty
+      if (details.postcode && !customerPincode) {
+        const cleanPin = details.postcode.replace(/\D/g, '').slice(0, 6);
+        setCustomerPincode(cleanPin);
+        if (cleanPin.length === 6) {
+          setPinStatus({
+            type: 'success',
+            message: `Location linked for PIN ${cleanPin}${details.state_district ? ` (${details.state_district}, ${details.state || ''})` : ''}`
+          });
+        }
+      }
+    }
+  };
+
+  const handleCustomerLocationConfirm = (confirmedData) => {
+    console.log('Location confirmed on map:', confirmedData);
+    setConfirmedCustomerLocation(confirmedData);
+    
+    // Non-destructively populate city, district, state, pincode if empty
+    if (confirmedData.city && !customerCity) {
+      setCustomerCity(confirmedData.city);
+    }
+    if (confirmedData.district && !customerDistrict) {
+      setCustomerDistrict(confirmedData.district);
+    }
+    if (confirmedData.state && !customerState) {
+      setCustomerState(confirmedData.state);
+    }
+    if (confirmedData.pincode && !customerPincode) {
+      setCustomerPincode(confirmedData.pincode);
+    }
+  };
+
+  const handleRestaurantPincodeChange = async (e) => {
+    const rawVal = e.target.value;
+    const numericVal = rawVal.replace(/\D/g, '').slice(0, 6);
+    setPincode(numericVal);
+
+    if (restaurantPinAbortRef.current) {
+      restaurantPinAbortRef.current.abort();
+    }
+
+    if (numericVal.length < 6) {
+      setRestaurantPinStatus(null);
+      setRestaurantPinLoading(false);
+      return;
+    }
+
+    setRestaurantPinLoading(true);
+    setRestaurantPinStatus(null);
+
+    const controller = new AbortController();
+    restaurantPinAbortRef.current = controller;
+
+    try {
+      const result = await authApi.lookupPincode(numericVal, controller.signal);
+      if (result && result.success) {
+        if (result.city && !city) {
+          setCity(result.city);
+        }
+        if (result.district) {
+          setRestaurantDistrict(result.district);
+        }
+        if (result.state) {
+          setRestaurantState(result.state);
+        }
+
+        const poNames = Array.isArray(result.postOffices) && result.postOffices.length > 0 
+          ? result.postOffices.slice(0, 3).join(', ') + (result.postOffices.length > 3 ? ` +${result.postOffices.length - 3} more` : '')
+          : '';
+
+        setRestaurantPinStatus({
+          type: 'success',
+          message: `Location identified for PIN ${numericVal}${result.district ? ` (${result.district}, ${result.state})` : ''}`,
+          postOffices: poNames
+        });
+      } else {
+        setRestaurantPinStatus({
+          type: 'warning',
+          message: result?.message || 'No location found for this PIN code.'
+        });
+      }
+    } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        return;
+      }
+      console.warn('Restaurant PIN lookup issue:', err);
+      setRestaurantPinStatus({
+        type: 'error',
+        message: 'Unable to verify PIN right now. You can enter the location manually.'
+      });
+    } finally {
+      setRestaurantPinLoading(false);
+    }
+  };
+
+  const handleRestaurantLocationConfirm = (confirmedData) => {
+    console.log('Restaurant location confirmed on map:', confirmedData);
+    setConfirmedRestaurantLocation(confirmedData);
+
+    // Non-destructively populate city, pincode, state, restaurantAddress if empty
+    if (confirmedData.city && !city) {
+      setCity(confirmedData.city);
+    }
+    if (confirmedData.pincode && !pincode) {
+      setPincode(confirmedData.pincode);
+    }
+    if (confirmedData.district && !restaurantDistrict) {
+      setRestaurantDistrict(confirmedData.district);
+    }
+    if (confirmedData.state && !restaurantState) {
+      setRestaurantState(confirmedData.state);
+    }
+    if (confirmedData.address && !restaurantAddress) {
+      setRestaurantAddress(confirmedData.address);
+    }
+  };
+
+  const handleNgoPincodeChange = async (e) => {
+    const rawVal = e.target.value;
+    const numericVal = rawVal.replace(/\D/g, '').slice(0, 6);
+    setNgoPincode(numericVal);
+
+    if (ngoPinAbortRef.current) {
+      ngoPinAbortRef.current.abort();
+    }
+
+    if (numericVal.length < 6) {
+      setNgoPinStatus(null);
+      setNgoPinLoading(false);
+      return;
+    }
+
+    setNgoPinLoading(true);
+    setNgoPinStatus(null);
+
+    const controller = new AbortController();
+    ngoPinAbortRef.current = controller;
+
+    try {
+      const result = await authApi.lookupPincode(numericVal, controller.signal);
+      if (result && result.success) {
+        if (result.city && !ngoCity) {
+          setNgoCity(result.city);
+        }
+        if (result.district) {
+          setNgoDistrict(result.district);
+        }
+        if (result.state) {
+          setNgoState(result.state);
+        }
+
+        const poNames = Array.isArray(result.postOffices) && result.postOffices.length > 0 
+          ? result.postOffices.slice(0, 3).join(', ') + (result.postOffices.length > 3 ? ` +${result.postOffices.length - 3} more` : '')
+          : '';
+
+        setNgoPinStatus({
+          type: 'success',
+          message: `Location identified for PIN ${numericVal}${result.district ? ` (${result.district}, ${result.state})` : ''}`,
+          postOffices: poNames
+        });
+      } else {
+        setNgoPinStatus({
+          type: 'warning',
+          message: result?.message || 'No location found for this PIN code.'
+        });
+      }
+    } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        return;
+      }
+      console.warn('NGO PIN lookup issue:', err);
+      setNgoPinStatus({
+        type: 'error',
+        message: 'Unable to verify PIN right now. You can enter the location manually.'
+      });
+    } finally {
+      setNgoPinLoading(false);
+    }
+  };
+
+  const handleNgoLocationConfirm = (confirmedData) => {
+    console.log('NGO location confirmed on map:', confirmedData);
+    setConfirmedNgoLocation(confirmedData);
+
+    // Non-destructively populate ngoCity, ngoPincode, ngoDistrict, ngoState, ngoAddress if empty
+    if (confirmedData.city && !ngoCity) {
+      setNgoCity(confirmedData.city);
+    }
+    if (confirmedData.pincode && !ngoPincode) {
+      setNgoPincode(confirmedData.pincode);
+    }
+    if (confirmedData.district && !ngoDistrict) {
+      setNgoDistrict(confirmedData.district);
+    }
+    if (confirmedData.state && !ngoState) {
+      setNgoState(confirmedData.state);
+    }
+    if (confirmedData.address && !ngoAddress) {
+      setNgoAddress(confirmedData.address);
+    }
+  };
 
   const handlePreferenceToggle = (pref) => {
     if (foodPreferences.includes(pref)) {
@@ -75,17 +406,79 @@ export default function Register() {
       return;
     }
 
+    // Customer Map Location Verification Guard
+    if (selectedRole === 'CUSTOMER') {
+      if (!confirmedCustomerLocation || !confirmedCustomerLocation.latitude || !confirmedCustomerLocation.longitude) {
+        setError('Please pinpoint and click "Confirm Location" on the delivery map before completing registration.');
+        return;
+      }
+    }
+
+    // Restaurant Map Location Verification Guard
+    if (selectedRole === 'RESTAURANT') {
+      if (!confirmedRestaurantLocation || !confirmedRestaurantLocation.latitude || !confirmedRestaurantLocation.longitude) {
+        setError('Please pinpoint and click "Confirm Location" on the restaurant map before completing registration.');
+        return;
+      }
+    }
+
+    // NGO Map Location Verification Guard
+    if (selectedRole === 'NGO') {
+      if (!confirmedNgoLocation || !confirmedNgoLocation.latitude || !confirmedNgoLocation.longitude) {
+        setError('Please pinpoint and click "Confirm Location" on the NGO location map before completing registration.');
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
       const backendRole = selectedRole === 'RESTAURANT' ? 'RESTAURANT_OWNER' : selectedRole;
+
+      // Compute structured customer delivery address
+      const structuredAddressParts = [
+        customerHouse.trim(),
+        customerStreet.trim(),
+        customerLandmark.trim() ? `Near ${customerLandmark.trim()}` : '',
+        customerCity.trim(),
+        customerDistrict.trim() && customerDistrict.trim().toLowerCase() !== customerCity.trim().toLowerCase() ? customerDistrict.trim() : '',
+        customerState.trim(),
+        customerPincode.trim()
+      ].filter(Boolean);
+
+      const customerFullAddress = structuredAddressParts.length > 0
+        ? structuredAddressParts.join(', ')
+        : address.trim();
+
+      const customerLocationReference = selectedLocation?.displayName 
+        || (customerCity ? `${customerCity}, ${customerState || ''}`.trim() : '')
+        || location 
+        || address;
+
       const payload = {
         name: selectedRole === 'NGO' ? contactPerson || name : name,
         email,
         phone,
         password,
-        address: selectedRole === 'RESTAURANT' ? restaurantAddress || address : (selectedRole === 'NGO' ? ngoAddress || address : address),
-        location: selectedRole === 'RESTAURANT' ? `${city}, ${pincode}` || location : location,
+        address: selectedRole === 'CUSTOMER' ? customerFullAddress : (selectedRole === 'RESTAURANT' ? restaurantAddress || address : (selectedRole === 'NGO' ? ngoAddress || address : address)),
+        location: selectedRole === 'CUSTOMER' ? customerLocationReference : (selectedRole === 'RESTAURANT' ? (confirmedRestaurantLocation?.address || `${city}, ${pincode}` || location) : (selectedRole === 'NGO' ? (confirmedNgoLocation?.address || `${ngoCity}, ${ngoPincode}` || location) : location)),
+        city: selectedRole === 'CUSTOMER' ? customerCity || null : (selectedRole === 'RESTAURANT' ? city : (selectedRole === 'NGO' ? ngoCity || null : null)),
+        pincode: selectedRole === 'CUSTOMER' ? customerPincode || null : (selectedRole === 'RESTAURANT' ? pincode : (selectedRole === 'NGO' ? ngoPincode || null : null)),
+        latitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.latitude : (selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.latitude : (selectedRole === 'NGO' ? confirmedNgoLocation.latitude : null)),
+        longitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.longitude : (selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.longitude : (selectedRole === 'NGO' ? confirmedNgoLocation.longitude : null)),
+        restaurantLatitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.latitude : null,
+        restaurantLongitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.longitude : null,
+        customerLatitude: selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.latitude : null,
+        customerLongitude: selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.longitude : null,
+        ngoLatitude: selectedRole === 'NGO' ? confirmedNgoLocation.latitude : null,
+        ngoLongitude: selectedRole === 'NGO' ? confirmedNgoLocation.longitude : null,
+        ngoCity: selectedRole === 'NGO' ? (ngoCity || confirmedNgoLocation?.city || null) : null,
+        ngoPincode: selectedRole === 'NGO' ? (ngoPincode || confirmedNgoLocation?.pincode || null) : null,
+        locationSource: selectedRole === 'RESTAURANT' 
+          ? (confirmedRestaurantLocation.locationSource || 'USER_CONFIRMED_MAP') 
+          : (selectedRole === 'NGO'
+            ? (confirmedNgoLocation.locationSource || 'USER_CONFIRMED_MAP')
+            : (selectedRole === 'CUSTOMER' ? (confirmedCustomerLocation.locationSource || 'USER_CONFIRMED_MAP') : null)),
         roles: [backendRole],
         
         // Customer specific
@@ -95,9 +488,7 @@ export default function Register() {
         restaurantName: selectedRole === 'RESTAURANT' ? restaurantName : null,
         description: selectedRole === 'RESTAURANT' ? description : null,
         restaurantAddress: selectedRole === 'RESTAURANT' ? restaurantAddress : null,
-        restaurantLocation: selectedRole === 'RESTAURANT' ? `${city}, ${pincode}` : null,
-        city: selectedRole === 'RESTAURANT' ? city : null,
-        pincode: selectedRole === 'RESTAURANT' ? pincode : null,
+        restaurantLocation: selectedRole === 'RESTAURANT' ? (confirmedRestaurantLocation?.address || `${city}, ${pincode}`) : null,
         cuisineType: selectedRole === 'RESTAURANT' ? cuisineType : null,
         restaurantContact: selectedRole === 'RESTAURANT' ? restaurantContact || phone : null,
         restaurantEmail: selectedRole === 'RESTAURANT' ? restaurantEmail || email : null,
@@ -250,8 +641,10 @@ export default function Register() {
             {selectedRole === 'CUSTOMER' && (
               <>
                 <h4 style={{ fontFamily: 'var(--font-heading)', color: '#fff', marginBottom: '1.2rem', fontSize: '1.1rem' }}>
-                  STEP 2: CUSTOMER DETAILS
+                  STEP 2: CUSTOMER DETAILS & DELIVERY LOCATION
                 </h4>
+                
+                {/* Personal Information */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Full Name *</label>
@@ -263,14 +656,229 @@ export default function Register() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Phone Number *</label>
-                    <input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Phone Number *</label>
+                  <input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" style={{ width: '100%', maxWidth: '400px', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
+                </div>
+
+                {/* Location Autocomplete Search Section */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.08)', padding: '1.25rem', borderRadius: '14px', marginBottom: '1.5rem' }}>
+                  <div style={{ marginBottom: '0.9rem' }}>
+                    <h5 style={{ color: '#fff', margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>
+                      📍 Step 2A: Search Delivery Area / Location
+                    </h5>
+                    <p style={{ color: 'var(--text-sub)', fontSize: '0.8rem', margin: '3px 0 0 0' }}>
+                      Search your area, locality, or village to lock in precise geocoding coordinates.
+                    </p>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Delivery Address / Location *</label>
-                    <input type="text" required value={address} onChange={(e) => setAddress(e.target.value)} placeholder="100ft Road, Indiranagar, Bengaluru" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
+
+                  <LocationSearch
+                    address={address}
+                    onAddressChange={(newAddr) => setAddress(newAddr)}
+                    selectedLocation={selectedLocation}
+                    onLocationSelect={handleCustomerLocationSelect}
+                    label="Search Delivery Area / Street / Village"
+                    placeholder="e.g. Harinathpur, Kaliganj, Nadia or Tansen Road, Durgapur"
+                    required
+                  />
+
+                  {/* Step 2B: Detailed Address Inputs */}
+                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '1.2rem', marginTop: '1rem' }}>
+                    <div style={{ marginBottom: '0.8rem' }}>
+                      <h5 style={{ color: '#fff', fontSize: '0.92rem', fontWeight: 600, margin: 0 }}>
+                        🏠 Step 2B: Detailed Address & Door Details
+                      </h5>
+                      <p style={{ color: 'var(--text-sub)', fontSize: '0.78rem', margin: '2px 0 0 0' }}>
+                        Provide exact flat, building, and street details for accurate doorstep delivery.
+                      </p>
+                    </div>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Flat / House / Building / Floor *</label>
+                        <input
+                          type="text"
+                          required
+                          value={customerHouse}
+                          onChange={(e) => setCustomerHouse(e.target.value)}
+                          placeholder="e.g. Flat 4B, Building 12, Block C"
+                          style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '10px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Area / Street / Sector / Village *</label>
+                        <input
+                          type="text"
+                          required
+                          value={customerStreet}
+                          onChange={(e) => setCustomerStreet(e.target.value)}
+                          placeholder="e.g. Tansen Road / Harinathpur"
+                          style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '10px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Landmark (Optional)</label>
+                        <input
+                          type="text"
+                          value={customerLandmark}
+                          onChange={(e) => setCustomerLandmark(e.target.value)}
+                          placeholder="e.g. Near City Center / Post Office"
+                          style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '10px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <label style={{ fontSize: '0.82rem', color: 'var(--text-sub)' }}>Pincode *</label>
+                          {pinLoading && (
+                            <span style={{ fontSize: '0.72rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ display: 'inline-block', width: '10px', height: '10px', border: '2px solid #38bdf8', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }}></span>
+                              Looking up PIN...
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={6}
+                          required
+                          value={customerPincode}
+                          onChange={handleCustomerPincodeChange}
+                          placeholder="e.g. 713200 or 632014"
+                          style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '10px', fontSize: '0.9rem' }}
+                        />
+                        {pinStatus && (
+                          <div
+                            style={{
+                              marginTop: '5px',
+                              fontSize: '0.74rem',
+                              color: pinStatus.type === 'success' ? '#34d399' : (pinStatus.type === 'error' ? '#f87171' : '#fbbf24'),
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            {pinStatus.type === 'success' ? '✓' : (pinStatus.type === 'error' ? '⚠' : 'ℹ')} {pinStatus.message}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>City / Town *</label>
+                        <input
+                          type="text"
+                          required
+                          value={customerCity}
+                          onChange={(e) => setCustomerCity(e.target.value)}
+                          placeholder="e.g. Durgapur"
+                          style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '10px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>District</label>
+                        <input
+                          type="text"
+                          value={customerDistrict}
+                          onChange={(e) => setCustomerDistrict(e.target.value)}
+                          placeholder="e.g. Paschim Bardhaman"
+                          style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '10px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>State *</label>
+                        <input
+                          type="text"
+                          required
+                          value={customerState}
+                          onChange={(e) => setCustomerState(e.target.value)}
+                          placeholder="e.g. West Bengal"
+                          style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '10px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Step 2C: Interactive Map Location Picker */}
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '1.2rem', marginTop: '1.2rem' }}>
+                      <div style={{ marginBottom: '0.8rem' }}>
+                        <h5 style={{ color: '#fff', fontSize: '0.92rem', fontWeight: 600, margin: 0 }}>
+                          🗺️ Step 2C: Pinpoint Delivery Location on Map *
+                        </h5>
+                        <p style={{ color: 'var(--text-sub)', fontSize: '0.78rem', margin: '2px 0 0 0' }}>
+                          Drag the marker to your exact doorstep or click "Use Current Location", then click "Confirm Location".
+                        </p>
+                      </div>
+
+                      <LocationPicker
+                        initialLocation={
+                          selectedLocation?.latitude && selectedLocation?.longitude
+                            ? {
+                                latitude: parseFloat(selectedLocation.latitude),
+                                longitude: parseFloat(selectedLocation.longitude),
+                                address: selectedLocation.displayName || address,
+                                city: customerCity,
+                                district: customerDistrict,
+                                state: customerState,
+                                pincode: customerPincode
+                              }
+                            : null
+                        }
+                        showSearch={false}
+                        title="Confirm Rooftop / Gate Location"
+                        description="Adjust the pin marker to your exact residential gate or doorstep for delivery riders."
+                        height="320px"
+                        onLocationConfirm={handleCustomerLocationConfirm}
+                        onLocationChange={(liveLoc) => {
+                          if (confirmedCustomerLocation && (confirmedCustomerLocation.latitude !== liveLoc.latitude || confirmedCustomerLocation.longitude !== liveLoc.longitude)) {
+                            setConfirmedCustomerLocation(null);
+                          }
+                        }}
+                      />
+
+                      {confirmedCustomerLocation ? (
+                        <div
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            border: '1px solid rgba(16, 185, 129, 0.4)',
+                            color: '#34d399',
+                            padding: '0.75rem 1rem',
+                            borderRadius: '10px',
+                            fontSize: '0.82rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            marginTop: '0.6rem'
+                          }}
+                        >
+                          <Check size={16} />
+                          <div>
+                            <strong>Delivery Location Confirmed:</strong> Lat {confirmedCustomerLocation.latitude?.toFixed(6)}, Lon {confirmedCustomerLocation.longitude?.toFixed(6)} ({confirmedCustomerLocation.locationSource || 'USER_CONFIRMED_MAP'})
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            background: 'rgba(245, 158, 11, 0.12)',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                            color: '#fbbf24',
+                            padding: '0.6rem 0.9rem',
+                            borderRadius: '10px',
+                            fontSize: '0.78rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginTop: '0.6rem'
+                          }}
+                        >
+                          <AlertCircle size={15} />
+                          Please adjust the pin marker on the map and click <strong>"Confirm Location"</strong> to lock your coordinates.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -331,12 +939,12 @@ export default function Register() {
                 {/* SECTION B */}
                 <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', padding: '1.2rem', borderRadius: '12px', marginBottom: '1.5rem' }}>
                   <h4 style={{ fontFamily: 'var(--font-heading)', color: '#f59e0b', marginBottom: '1rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    🏪 Section B: Restaurant Information
+                    🏪 Section B: Restaurant Information & Kitchen Location
                   </h4>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Restaurant Name *</label>
-                      <input type="text" required value={restaurantName} onChange={(e) => setRestaurantName(e.target.value)} placeholder="Spice Hub" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                      <input type="text" required value={restaurantName} onChange={(e) => setRestaurantName(e.target.value)} placeholder="Durgapur Royal Biryani & Tandoor" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Cuisine / Food Category *</label>
@@ -350,22 +958,121 @@ export default function Register() {
 
                   <div style={{ marginBottom: '1rem' }}>
                     <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Restaurant Description</label>
-                    <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Authentic North Indian curries and gourmet tandoor dishes." style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px', minHeight: '60px' }} />
+                    <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Authentic Dum Biryani, gourmet charcoal tandoori specials, and Mughlai curries." style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px', minHeight: '60px' }} />
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Physical Address *</label>
-                      <input type="text" required value={restaurantAddress} onChange={(e) => setRestaurantAddress(e.target.value)} placeholder="Katpadi Main Road" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Physical Address / Street *</label>
+                      <input type="text" required value={restaurantAddress} onChange={(e) => setRestaurantAddress(e.target.value)} placeholder="Near City Centre, Durgapur" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>City *</label>
-                      <input type="text" required value={city} onChange={(e) => setCity(e.target.value)} placeholder="Vellore" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>City / Town *</label>
+                      <input type="text" required value={city} onChange={(e) => setCity(e.target.value)} placeholder="Durgapur" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Pincode *</label>
-                      <input type="text" required value={pincode} onChange={(e) => setPincode(e.target.value)} placeholder="632007" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <label style={{ fontSize: '0.82rem', color: 'var(--text-sub)' }}>6-Digit PIN *</label>
+                        {restaurantPinLoading && (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Loader2 size={11} className="animate-spin" /> Verifying...
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={pincode}
+                        onChange={handleRestaurantPincodeChange}
+                        placeholder="713216"
+                        style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }}
+                      />
+                      {restaurantPinStatus && (
+                        <div
+                          style={{
+                            marginTop: '4px',
+                            fontSize: '0.74rem',
+                            color: restaurantPinStatus.type === 'success' ? '#34d399' : (restaurantPinStatus.type === 'error' ? '#f87171' : '#fbbf24')
+                          }}
+                        >
+                          {restaurantPinStatus.type === 'success' ? '✓' : (restaurantPinStatus.type === 'error' ? '⚠' : 'ℹ')} {restaurantPinStatus.message}
+                        </div>
+                      )}
                     </div>
+                  </div>
+
+                  {/* Interactive Restaurant Map & Rooftop Location Picker */}
+                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '1.2rem', marginTop: '1.2rem', marginBottom: '1.2rem' }}>
+                    <LocationPicker
+                      initialLocation={
+                        confirmedRestaurantLocation?.latitude && confirmedRestaurantLocation?.longitude
+                          ? {
+                              latitude: confirmedRestaurantLocation.latitude,
+                              longitude: confirmedRestaurantLocation.longitude,
+                              address: confirmedRestaurantLocation.address || restaurantAddress,
+                              city: city,
+                              pincode: pincode
+                            }
+                          : (city || pincode || restaurantAddress
+                            ? {
+                                address: restaurantAddress,
+                                city: city,
+                                pincode: pincode
+                              }
+                            : null)
+                      }
+                      showSearch={true}
+                      title="Pin Exact Restaurant / Kitchen Location"
+                      description="Search locality or use GPS, then drag the pin marker (📍) to your kitchen or pickup counter entrance."
+                      height="340px"
+                      onLocationConfirm={handleRestaurantLocationConfirm}
+                      onLocationChange={(liveLoc) => {
+                        if (confirmedRestaurantLocation && (confirmedRestaurantLocation.latitude !== liveLoc.latitude || confirmedRestaurantLocation.longitude !== liveLoc.longitude)) {
+                          setConfirmedRestaurantLocation(null);
+                        }
+                      }}
+                    />
+
+                    {confirmedRestaurantLocation ? (
+                      <div
+                        style={{
+                          background: 'rgba(16, 185, 129, 0.15)',
+                          border: '1px solid rgba(16, 185, 129, 0.4)',
+                          color: '#34d399',
+                          padding: '0.75rem 1rem',
+                          borderRadius: '10px',
+                          fontSize: '0.82rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          marginTop: '0.6rem'
+                        }}
+                      >
+                        <Check size={16} />
+                        <div>
+                          <strong>Restaurant Location Confirmed:</strong> Lat {confirmedRestaurantLocation.latitude?.toFixed(6)}, Lon {confirmedRestaurantLocation.longitude?.toFixed(6)} ({confirmedRestaurantLocation.locationSource || 'USER_CONFIRMED_MAP'})
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.12)',
+                          border: '1px solid rgba(245, 158, 11, 0.35)',
+                          color: '#fbbf24',
+                          padding: '0.6rem 0.9rem',
+                          borderRadius: '10px',
+                          fontSize: '0.78rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginTop: '0.6rem'
+                        }}
+                      >
+                        <AlertCircle size={15} />
+                        Please search or adjust the pin marker (📍) to your restaurant's exact pickup spot and click <strong>"Confirm Location"</strong>.
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
@@ -490,20 +1197,129 @@ export default function Register() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>NGO Operational Address *</label>
-                    <input type="text" required value={ngoAddress} onChange={(e) => setNgoAddress(e.target.value)} placeholder="12 Mission Road, Shanthi Nagar, Bengaluru" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
+                    <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>NGO Operational Address / Street *</label>
+                    <input type="text" required value={ngoAddress} onChange={(e) => setNgoAddress(e.target.value)} placeholder="Near City Centre, Durgapur" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
                   </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>City / Town *</label>
+                    <input type="text" required value={ngoCity} onChange={(e) => setNgoCity(e.target.value)} placeholder="Durgapur" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.82rem', color: 'var(--text-sub)' }}>6-Digit PIN *</label>
+                      {ngoPinLoading && (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Loader2 size={11} className="animate-spin" /> Verifying...
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      value={ngoPincode}
+                      onChange={handleNgoPincodeChange}
+                      placeholder="713216"
+                      style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }}
+                    />
+                    {ngoPinStatus && (
+                      <div
+                        style={{
+                          marginTop: '4px',
+                          fontSize: '0.74rem',
+                          color: ngoPinStatus.type === 'success' ? '#34d399' : (ngoPinStatus.type === 'error' ? '#f87171' : '#fbbf24')
+                        }}
+                      >
+                        {ngoPinStatus.type === 'success' ? '✓' : (ngoPinStatus.type === 'error' ? '⚠' : 'ℹ')} {ngoPinStatus.message}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Interactive NGO Map & Location Picker */}
+                <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '1.2rem', marginTop: '1.2rem', marginBottom: '1.2rem' }}>
+                  <LocationPicker
+                    initialLocation={
+                      confirmedNgoLocation?.latitude && confirmedNgoLocation?.longitude
+                        ? {
+                            latitude: confirmedNgoLocation.latitude,
+                            longitude: confirmedNgoLocation.longitude,
+                            address: confirmedNgoLocation.address || ngoAddress,
+                            city: ngoCity,
+                            pincode: ngoPincode
+                          }
+                        : (ngoCity || ngoPincode || ngoAddress
+                          ? {
+                              address: ngoAddress,
+                              city: ngoCity,
+                              pincode: ngoPincode
+                            }
+                          : null)
+                    }
+                    showSearch={true}
+                    title="Pin Exact NGO Location"
+                    description="Search your NGO address or locality, use GPS, then drag the pin (📍) to the exact NGO office or food collection point."
+                    height="340px"
+                    onLocationConfirm={handleNgoLocationConfirm}
+                    onLocationChange={(liveLoc) => {
+                      if (confirmedNgoLocation && (confirmedNgoLocation.latitude !== liveLoc.latitude || confirmedNgoLocation.longitude !== liveLoc.longitude)) {
+                        setConfirmedNgoLocation(null);
+                      }
+                    }}
+                  />
+
+                  {confirmedNgoLocation ? (
+                    <div
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        color: '#34d399',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '10px',
+                        fontSize: '0.82rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        marginTop: '0.6rem'
+                      }}
+                    >
+                      <Check size={16} />
+                      <div>
+                        <strong>NGO Location Confirmed:</strong> Lat {confirmedNgoLocation.latitude?.toFixed(6)}, Lon {confirmedNgoLocation.longitude?.toFixed(6)} ({confirmedNgoLocation.locationSource || 'USER_CONFIRMED_MAP'})
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        background: 'rgba(245, 158, 11, 0.12)',
+                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                        color: '#fbbf24',
+                        padding: '0.6rem 0.9rem',
+                        borderRadius: '10px',
+                        fontSize: '0.78rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginTop: '0.6rem'
+                      }}
+                    >
+                      <AlertCircle size={15} />
+                      Please search or adjust the pin marker (📍) to your NGO's physical pickup/distribution point and click <strong>"Confirm Location"</strong>.
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Organization Type / Mission *</label>
                     <input type="text" required value={organizationInfo} onChange={(e) => setOrganizationInfo(e.target.value)} placeholder="Community Food Bank & Zero Waste Shelter" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
                   </div>
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Food Rescue & Distribution Capacity *</label>
-                  <input type="text" required value={foodRescueInfo} onChange={(e) => setFoodRescueInfo(e.target.value)} placeholder="Capacity for 200+ surplus meals daily, cold chain van available" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Food Rescue & Distribution Capacity *</label>
+                    <input type="text" required value={foodRescueInfo} onChange={(e) => setFoodRescueInfo(e.target.value)} placeholder="Capacity for 200+ surplus meals daily, cold chain van available" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
+                  </div>
                 </div>
               </>
             )}

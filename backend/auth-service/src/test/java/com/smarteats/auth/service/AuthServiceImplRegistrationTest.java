@@ -174,4 +174,137 @@ class AuthServiceImplRegistrationTest {
         assertNotEquals(2.0, response.getCustomerLongitude());
         verify(geocodingService, times(1)).geocodeAddress(contains("100 Feet Road"));
     }
+
+    @Test
+    void testNgoRegistrationWithValidAddressGeocodingSuccess() {
+        RegisterRequest request = RegisterRequest.builder()
+                .name("Priya Sharma")
+                .email("ngo@smarteats.com")
+                .password("password123")
+                .ngoName("Durgapur Food Relief NGO")
+                .contactPerson("Priya Sharma")
+                .ngoAddress("Near City Centre, Durgapur")
+                .ngoCity("Durgapur")
+                .ngoPincode("713216")
+                .roles(Collections.singleton(Role.NGO))
+                .build();
+
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(passwordEncoder.encode(anyString())).thenReturn("encodedPassword");
+        when(geocodingService.geocodeAddress(anyString()))
+                .thenReturn(GeocodingResult.success(23.5421, 87.2934, "Near City Centre, Durgapur 713216", "OpenStreetMap-Nominatim"));
+
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User u = invocation.getArgument(0);
+            u.setId("usr_ngo_123");
+            return u;
+        });
+
+        UserDto response = authService.register(request);
+
+        assertNotNull(response);
+        assertEquals("Durgapur Food Relief NGO", response.getNgoName());
+        assertEquals(23.5421, response.getNgoLatitude());
+        assertEquals(87.2934, response.getNgoLongitude());
+        assertEquals("Durgapur", response.getNgoCity());
+        assertEquals("713216", response.getNgoPincode());
+        verify(authEventProducer, times(1)).publishNGORegistered(any());
+    }
+
+    @Test
+    void testNgoRegistrationFineTuningWithin50kmRetained() {
+        // Geocoding center at (23.5400, 87.2900), client dragged pin to exact office at (23.5421, 87.2934) (~0.42 km away)
+        RegisterRequest request = RegisterRequest.builder()
+                .name("Priya Sharma")
+                .email("ngo_tuned@smarteats.com")
+                .password("password123")
+                .ngoName("Durgapur Food Relief NGO")
+                .contactPerson("Priya Sharma")
+                .ngoAddress("Near City Centre, Durgapur")
+                .ngoCity("Durgapur")
+                .ngoPincode("713216")
+                .ngoLatitude(23.542100)
+                .ngoLongitude(87.293400)
+                .locationSource("USER_CONFIRMED_MAP")
+                .roles(Collections.singleton(Role.NGO))
+                .build();
+
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(passwordEncoder.encode(anyString())).thenReturn("encodedPassword");
+        when(geocodingService.geocodeAddress(anyString()))
+                .thenReturn(GeocodingResult.success(23.5400, 87.2900, "City Centre, Durgapur", "OpenStreetMap-Nominatim"));
+
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User u = invocation.getArgument(0);
+            u.setId("usr_ngo_tuned");
+            return u;
+        });
+
+        UserDto response = authService.register(request);
+
+        assertNotNull(response);
+        // Retains user fine-tuned coordinates because it is within 50km
+        assertEquals(23.542100, response.getNgoLatitude());
+        assertEquals(87.293400, response.getNgoLongitude());
+    }
+
+    @Test
+    void testNgoRegistrationAntiSpoofingOverwritesFarCoordinates() {
+        // Client tries spoofing coordinates (1.0, 2.0) with a Durgapur address
+        RegisterRequest request = RegisterRequest.builder()
+                .name("Spoof NGO")
+                .email("spoof_ngo@smarteats.com")
+                .password("password123")
+                .ngoName("Spoof Relief NGO")
+                .contactPerson("Spoof Person")
+                .ngoAddress("Near City Centre, Durgapur")
+                .ngoCity("Durgapur")
+                .ngoPincode("713216")
+                .ngoLatitude(1.0)
+                .ngoLongitude(2.0)
+                .locationSource("USER_CONFIRMED_MAP")
+                .roles(Collections.singleton(Role.NGO))
+                .build();
+
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(passwordEncoder.encode(anyString())).thenReturn("encodedPassword");
+        when(geocodingService.geocodeAddress(anyString()))
+                .thenReturn(GeocodingResult.success(23.5421, 87.2934, "Near City Centre, Durgapur 713216", "OpenStreetMap-Nominatim"));
+
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User u = invocation.getArgument(0);
+            u.setId("usr_ngo_spoof");
+            return u;
+        });
+
+        UserDto response = authService.register(request);
+
+        assertNotNull(response);
+        // Overwritten with authoritative geocoded coordinates
+        assertEquals(23.5421, response.getNgoLatitude());
+        assertEquals(87.2934, response.getNgoLongitude());
+        assertNotEquals(1.0, response.getNgoLatitude());
+        assertNotEquals(2.0, response.getNgoLongitude());
+    }
+
+    @Test
+    void testNgoRegistrationInvalidAddressFailure() {
+        RegisterRequest request = RegisterRequest.builder()
+                .name("Invalid NGO")
+                .email("invalid_ngo@smarteats.com")
+                .password("password123")
+                .ngoName("Invalid NGO")
+                .contactPerson("Invalid Person")
+                .ngoAddress("FakeNonExistentAddressXYZ9999")
+                .roles(Collections.singleton(Role.NGO))
+                .build();
+
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(geocodingService.geocodeAddress(anyString()))
+                .thenReturn(GeocodingResult.failure("No geocoding result found for address", "OpenStreetMap-Nominatim"));
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> authService.register(request));
+        assertTrue(ex.getMessage().contains("NGO address verification failed"));
+        verify(userRepository, never()).save(any(User.class));
+    }
 }

@@ -26,9 +26,12 @@ import org.springframework.data.geo.Metrics;
 import org.springframework.data.geo.Point;
 import org.springframework.stereotype.Service;
 
+import com.smarteats.restaurant.util.RestaurantOperatingHoursUtil;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -46,19 +49,29 @@ public class RestaurantServiceImpl implements RestaurantService {
     private final MenuItemRepository menuItemRepository;
     private final ProfileChangeRequestRepository profileChangeRequestRepository;
     private final GeocodingService geocodingService;
+    private final Clock clock;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RestaurantServiceImpl(RestaurantRepository restaurantRepository,
+                                 MenuItemRepository menuItemRepository,
+                                 ProfileChangeRequestRepository profileChangeRequestRepository,
+                                 GeocodingService geocodingService,
+                                 @org.springframework.beans.factory.annotation.Autowired(required = false) Clock clock) {
+        this.restaurantRepository = restaurantRepository;
+        this.menuItemRepository = menuItemRepository;
+        this.profileChangeRequestRepository = profileChangeRequestRepository;
+        this.geocodingService = geocodingService;
+        this.clock = clock != null ? clock : Clock.system(RestaurantOperatingHoursUtil.ZONE_ASIA_KOLKATA);
+    }
 
     public RestaurantServiceImpl(RestaurantRepository restaurantRepository,
                                  MenuItemRepository menuItemRepository,
                                  ProfileChangeRequestRepository profileChangeRequestRepository,
                                  GeocodingService geocodingService) {
-        this.restaurantRepository = restaurantRepository;
-        this.menuItemRepository = menuItemRepository;
-        this.profileChangeRequestRepository = profileChangeRequestRepository;
-        this.geocodingService = geocodingService;
+        this(restaurantRepository, menuItemRepository, profileChangeRequestRepository, geocodingService, null);
     }
 
     @Override
-    @CacheEvict(value = "approved_restaurants", allEntries = true)
     public RestaurantResponse registerRestaurant(RestaurantRequest request, String ownerEmail) {
         log.info("Registering new restaurant '{}' by owner '{}'", request.getName(), ownerEmail);
         
@@ -107,10 +120,6 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Caching(evict = {
-        @CacheEvict(value = "approved_restaurants", allEntries = true),
-        @CacheEvict(value = "restaurants", key = "#id")
-    })
     public RestaurantResponse approveRestaurant(String id) {
         log.info("Approving restaurant with ID: {}", id);
         Restaurant restaurant = restaurantRepository.findById(id)
@@ -124,7 +133,6 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Cacheable(value = "restaurants", key = "#id")
     public RestaurantResponse getRestaurantById(String id) {
         log.info("Fetching restaurant from DB for ID: {}", id);
         Restaurant restaurant = restaurantRepository.findById(id)
@@ -133,10 +141,6 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Caching(evict = {
-        @CacheEvict(value = "approved_restaurants", allEntries = true),
-        @CacheEvict(value = "restaurants", key = "#id")
-    })
     public RestaurantResponse updateRestaurant(String id, RestaurantRequest request, String ownerEmail) {
         log.info("Updating restaurant with ID: {}", id);
         Restaurant restaurant = restaurantRepository.findById(id)
@@ -167,10 +171,6 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Caching(evict = {
-        @CacheEvict(value = "approved_restaurants", allEntries = true),
-        @CacheEvict(value = "restaurants", key = "#id")
-    })
     public void deleteRestaurant(String id, String ownerEmail) {
         log.info("Deleting restaurant with ID: {}", id);
         Restaurant restaurant = restaurantRepository.findById(id)
@@ -181,7 +181,6 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Cacheable(value = "approved_restaurants")
     public List<RestaurantResponse> getAllApprovedRestaurants() {
         log.info("Fetching all approved restaurants from DB");
         return restaurantRepository.findByApproved(true).stream()
@@ -287,10 +286,6 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Caching(evict = {
-        @CacheEvict(value = "approved_restaurants", allEntries = true),
-        @CacheEvict(value = "restaurants", allEntries = true)
-    })
     public RestaurantResponse updateMyRestaurant(RestaurantRequest request, String ownerEmail) {
         log.info("Updating operational fields for owner: {}", ownerEmail);
         List<Restaurant> list = restaurantRepository.findByOwnerEmail(ownerEmail);
@@ -519,6 +514,14 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     private RestaurantResponse mapToResponse(Restaurant r) {
+        LocalTime currentTime = LocalTime.now(clock);
+        boolean calculatedOpen = RestaurantOperatingHoursUtil.isCurrentlyOpen(
+                r.getOpeningTime(),
+                r.getClosingTime(),
+                r.isOpen(),
+                currentTime
+        );
+
         return RestaurantResponse.builder()
                 .id(r.getId())
                 .ownerId(r.getOwnerId())
@@ -543,7 +546,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .verificationDocumentUrl(r.getVerificationDocumentUrl())
                 .approved(r.isApproved())
                 .status(r.getStatus())
-                .open(r.isOpen())
+                .open(calculatedOpen)
                 .approvedBy(r.getApprovedBy())
                 .approvalDate(r.getApprovalDate())
                 .createdAt(r.getCreatedAt())

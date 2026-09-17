@@ -19,7 +19,12 @@ public class NGORegisteredEvent implements Serializable {
     private String ngoName;
     private String contactPerson;
     private String ngoAddress;
+    private String city;
+    private String pincode;
+    private Double latitude;
+    private Double longitude;
     private String location;
+    private String locationSource;
     private String organizationInfo;
     private String foodRescueInfo;
 }

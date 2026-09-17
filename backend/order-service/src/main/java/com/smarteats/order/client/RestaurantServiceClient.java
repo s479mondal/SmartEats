@@ -100,4 +100,43 @@ public class RestaurantServiceClient {
             throw new BadRequestException("Could not verify restaurant coordinates: " + e.getMessage());
         }
     }
+
+    public boolean isRestaurantOpen(String restaurantId) {
+        if (restaurantId == null || restaurantId.trim().isEmpty()) {
+            throw new BadRequestException("Restaurant ID cannot be empty");
+        }
+
+        try {
+            String url = restaurantServiceUrl + "/api/restaurants/" + restaurantId.trim();
+            log.info("Checking authoritative restaurant open status from Restaurant Service: {}", url);
+            ResponseEntity<String> response = restTemplate.getForEntity(URI.create(url), String.class);
+
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                log.error("Restaurant Service returned non-success status {} for ID {}", response.getStatusCode(), restaurantId);
+                throw new BadRequestException("Failed to retrieve restaurant details from Restaurant Service");
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode dataNode = root.has("data") ? root.get("data") : root;
+
+            if (dataNode == null || dataNode.isNull() || dataNode.isEmpty()) {
+                throw new ResourceNotFoundException("Restaurant not found with ID: " + restaurantId);
+            }
+
+            if (dataNode.has("open") && !dataNode.get("open").isNull()) {
+                return dataNode.get("open").asBoolean();
+            }
+
+            if (dataNode.has("status") && !dataNode.get("status").isNull()) {
+                return "ACTIVE".equalsIgnoreCase(dataNode.get("status").asText());
+            }
+
+            return false;
+        } catch (BadRequestException | ResourceNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error checking restaurant open status for ID {}: {}", restaurantId, e.getMessage(), e);
+            throw new BadRequestException("Could not verify restaurant operating status: " + e.getMessage());
+        }
+    }
 }

@@ -81,6 +81,7 @@ public class OrderCoordinateTransitionTest {
         ReflectionTestUtils.setField(orderService, "orderCreatedTopic", "smarteats.order.created");
         ReflectionTestUtils.setField(orderService, "orderAcceptedTopic", "smarteats.order.accepted");
         ReflectionTestUtils.setField(orderService, "orderStatusTopic", "smarteats.order.status");
+        lenient().when(restaurantServiceClient.isRestaurantOpen(anyString())).thenReturn(true);
     }
 
     @Test

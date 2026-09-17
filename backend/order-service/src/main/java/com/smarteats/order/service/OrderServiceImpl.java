@@ -125,6 +125,13 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("Cannot place order. Shopping cart is empty!");
         }
 
+        // Authoritatively validate that restaurant is currently open
+        boolean isOpen = restaurantServiceClient.isRestaurantOpen(cart.getRestaurantId());
+        if (!isOpen) {
+            log.warn("Attempted order placement rejected: Restaurant {} is currently closed", cart.getRestaurantId());
+            throw new BadRequestException("Restaurant is currently closed for orders.");
+        }
+
         double totalAmount = cart.getItems().stream()
                 .mapToDouble(item -> item.getPrice() * item.getQuantity())
                 .sum();

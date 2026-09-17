@@ -63,12 +63,14 @@ public class AuthServiceImpl implements AuthService {
 
         boolean isCustomer = request.getRoles().contains(Role.CUSTOMER) && request.getRoles().size() == 1;
         boolean isRestaurantOwner = request.getRoles().contains(Role.RESTAURANT_OWNER);
+        boolean isNGO = request.getRoles().contains(Role.NGO);
         String status = isCustomer ? "ACTIVE" : "PENDING";
         boolean approved = isCustomer;
 
         // 1. Customer Location Resolution & Geocoding
         Double custLat = request.getCustomerLatitude() != null ? request.getCustomerLatitude() : (isCustomer ? request.getLatitude() : null);
         Double custLng = request.getCustomerLongitude() != null ? request.getCustomerLongitude() : (isCustomer ? request.getLongitude() : null);
+        String locSource = request.getLocationSource();
 
         if (isCustomer) {
             String addressQuery = buildAddressQuery(request.getAddress(), null, null, request.getLocation());
@@ -76,9 +78,55 @@ public class AuthServiceImpl implements AuthService {
                 log.info("Triggering authoritative geocoding for customer registration address: '{}'", addressQuery);
                 GeocodingResult result = geocodingService.geocodeAddress(addressQuery);
                 if (result.isSuccess()) {
-                    custLat = result.getLatitude();
-                    custLng = result.getLongitude();
-                    log.info("Geocoding resolved customer coordinates: lat={}, lon={}", custLat, custLng);
+                    double geoLat = result.getLatitude();
+                    double geoLng = result.getLongitude();
+                    if (custLat != null && custLng != null) {
+                        double distanceKm = calculateDistanceKm(geoLat, geoLng, custLat, custLng);
+                        if (distanceKm <= 50.0) {
+                            log.info("Client confirmed rooftop coordinates (lat={}, lon={}) are within {} km of geocoded center (lat={}, lon={}). Retaining fine-tuned coordinates.",
+                                    custLat, custLng, String.format("%.2f", distanceKm), geoLat, geoLng);
+                        } else {
+                            log.warn("Client submitted coordinates (lat={}, lon={}) are {} km away from geocoded address center (lat={}, lon={}). Overwriting with authoritative geocoded coordinates.",
+                                    custLat, custLng, String.format("%.2f", distanceKm), geoLat, geoLng);
+                            custLat = geoLat;
+                            custLng = geoLng;
+                            locSource = "GEOCODED";
+                        }
+                    } else {
+                        custLat = geoLat;
+                        custLng = geoLng;
+                        locSource = "GEOCODED";
+                    }
+                    log.info("Final customer coordinates: lat={}, lon={}", custLat, custLng);
+                } else if (request.getLocation() != null && !request.getLocation().isBlank()) {
+                    log.info("Attempting geocoding resolution using location reference: '{}'", request.getLocation());
+                    GeocodingResult locResult = geocodingService.geocodeAddress(request.getLocation());
+                    if (locResult.isSuccess()) {
+                        double geoLat = locResult.getLatitude();
+                        double geoLng = locResult.getLongitude();
+                        if (custLat != null && custLng != null) {
+                            double distanceKm = calculateDistanceKm(geoLat, geoLng, custLat, custLng);
+                            if (distanceKm <= 50.0) {
+                                log.info("Client confirmed coordinates retained within location reference bounds.");
+                            } else {
+                                custLat = geoLat;
+                                custLng = geoLng;
+                                locSource = "GEOCODED";
+                            }
+                        } else {
+                            custLat = geoLat;
+                            custLng = geoLng;
+                            locSource = "GEOCODED";
+                        }
+                        log.info("Geocoding resolved customer coordinates via location reference: lat={}, lon={}", custLat, custLng);
+                    } else if (custLat != null && custLng != null) {
+                        log.info("Using verified customer coordinates: lat={}, lon={}", custLat, custLng);
+                    } else {
+                        log.warn("Customer address geocoding failed for '{}': {}", addressQuery, result.getErrorMessage());
+                        throw new BadRequestException("Customer address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical address.");
+                    }
+                } else if (custLat != null && custLng != null) {
+                    log.info("Using verified customer coordinates: lat={}, lon={}", custLat, custLng);
                 } else {
                     log.warn("Customer address geocoding failed for '{}': {}", addressQuery, result.getErrorMessage());
                     throw new BadRequestException("Customer address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical address.");
@@ -88,8 +136,9 @@ public class AuthServiceImpl implements AuthService {
         validateCoordinates(custLat, custLng);
 
         // 2. Restaurant Owner Location Resolution & Geocoding
-        Double restLat = request.getLatitude();
-        Double restLng = request.getLongitude();
+        Double restLat = request.getRestaurantLatitude() != null ? request.getRestaurantLatitude() : (isRestaurantOwner ? request.getLatitude() : null);
+        Double restLng = request.getRestaurantLongitude() != null ? request.getRestaurantLongitude() : (isRestaurantOwner ? request.getLongitude() : null);
+        String restLocSource = request.getLocationSource();
 
         if (isRestaurantOwner) {
             String restAddressQuery = buildAddressQuery(request.getRestaurantAddress(), request.getCity(), request.getPincode(), request.getRestaurantLocation());
@@ -97,16 +146,142 @@ public class AuthServiceImpl implements AuthService {
                 log.info("Triggering authoritative geocoding for restaurant owner registration address: '{}'", restAddressQuery);
                 GeocodingResult result = geocodingService.geocodeAddress(restAddressQuery);
                 if (result.isSuccess()) {
-                    restLat = result.getLatitude();
-                    restLng = result.getLongitude();
-                    log.info("Geocoding resolved restaurant owner coordinates: lat={}, lon={}", restLat, restLng);
+                    double geoLat = result.getLatitude();
+                    double geoLng = result.getLongitude();
+                    if (restLat != null && restLng != null) {
+                        double distanceKm = calculateDistanceKm(geoLat, geoLng, restLat, restLng);
+                        if (distanceKm <= 50.0) {
+                            log.info("Client confirmed restaurant rooftop coordinates (lat={}, lon={}) are within {} km of geocoded center (lat={}, lon={}). Retaining fine-tuned coordinates.",
+                                    restLat, restLng, String.format("%.2f", distanceKm), geoLat, geoLng);
+                        } else {
+                            log.warn("Client submitted restaurant coordinates (lat={}, lon={}) are {} km away from geocoded address center (lat={}, lon={}). Overwriting with authoritative geocoded coordinates.",
+                                    restLat, restLng, String.format("%.2f", distanceKm), geoLat, geoLng);
+                            restLat = geoLat;
+                            restLng = geoLng;
+                            restLocSource = "GEOCODED";
+                        }
+                    } else {
+                        restLat = geoLat;
+                        restLng = geoLng;
+                        restLocSource = "GEOCODED";
+                    }
+                    log.info("Final restaurant coordinates: lat={}, lon={}", restLat, restLng);
+                } else if (request.getRestaurantLocation() != null && !request.getRestaurantLocation().isBlank()) {
+                    log.info("Attempting geocoding resolution using restaurant location reference: '{}'", request.getRestaurantLocation());
+                    GeocodingResult locResult = geocodingService.geocodeAddress(request.getRestaurantLocation());
+                    if (locResult.isSuccess()) {
+                        double geoLat = locResult.getLatitude();
+                        double geoLng = locResult.getLongitude();
+                        if (restLat != null && restLng != null) {
+                            double distanceKm = calculateDistanceKm(geoLat, geoLng, restLat, restLng);
+                            if (distanceKm <= 50.0) {
+                                log.info("Client confirmed restaurant coordinates retained within location reference bounds.");
+                            } else {
+                                restLat = geoLat;
+                                restLng = geoLng;
+                                restLocSource = "GEOCODED";
+                            }
+                        } else {
+                            restLat = geoLat;
+                            restLng = geoLng;
+                            restLocSource = "GEOCODED";
+                        }
+                        log.info("Geocoding resolved restaurant coordinates via location reference: lat={}, lon={}", restLat, restLng);
+                    } else if (restLat != null && restLng != null && isWithinIndiaBounds(restLat, restLng)) {
+                        log.info("Using verified restaurant map coordinates within India bounds: lat={}, lon={}", restLat, restLng);
+                    } else {
+                        log.warn("Restaurant address geocoding failed for '{}': {}", restAddressQuery, result.getErrorMessage());
+                        throw new BadRequestException("Restaurant address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical restaurant address.");
+                    }
+                } else if (restLat != null && restLng != null && isWithinIndiaBounds(restLat, restLng)) {
+                    log.info("Using verified restaurant map coordinates within India bounds: lat={}, lon={}", restLat, restLng);
                 } else {
-                    log.warn("Restaurant owner address geocoding failed for '{}': {}", restAddressQuery, result.getErrorMessage());
+                    log.warn("Restaurant address geocoding failed for '{}': {}", restAddressQuery, result.getErrorMessage());
                     throw new BadRequestException("Restaurant address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical restaurant address.");
                 }
+            } else if (restLat != null && restLng != null && isWithinIndiaBounds(restLat, restLng)) {
+                log.info("Using verified restaurant coordinates without address query: lat={}, lon={}", restLat, restLng);
+            } else {
+                throw new BadRequestException("Restaurant physical address or verified map coordinates are required.");
             }
         }
         validateCoordinates(restLat, restLng);
+
+        // 3. NGO Location Resolution & Geocoding
+        Double ngoLat = request.getNgoLatitude() != null ? request.getNgoLatitude() : (isNGO ? request.getLatitude() : null);
+        Double ngoLng = request.getNgoLongitude() != null ? request.getNgoLongitude() : (isNGO ? request.getLongitude() : null);
+        String ngoLocSource = request.getLocationSource();
+
+        if (isNGO) {
+            String ngoAddressQuery = buildAddressQuery(
+                    request.getNgoAddress(), 
+                    request.getNgoCity() != null ? request.getNgoCity() : request.getCity(), 
+                    request.getNgoPincode() != null ? request.getNgoPincode() : request.getPincode(), 
+                    request.getLocation());
+            if (ngoAddressQuery != null && !ngoAddressQuery.isBlank()) {
+                log.info("Triggering authoritative geocoding for NGO registration address: '{}'", ngoAddressQuery);
+                GeocodingResult result = geocodingService.geocodeAddress(ngoAddressQuery);
+                if (result.isSuccess()) {
+                    double geoLat = result.getLatitude();
+                    double geoLng = result.getLongitude();
+                    if (ngoLat != null && ngoLng != null) {
+                        double distanceKm = calculateDistanceKm(geoLat, geoLng, ngoLat, ngoLng);
+                        if (distanceKm <= 50.0) {
+                            log.info("Client confirmed NGO rooftop/office coordinates (lat={}, lon={}) are within {} km of geocoded center (lat={}, lon={}). Retaining fine-tuned coordinates.",
+                                    ngoLat, ngoLng, String.format("%.2f", distanceKm), geoLat, geoLng);
+                        } else {
+                            log.warn("Client submitted NGO coordinates (lat={}, lon={}) are {} km away from geocoded address center (lat={}, lon={}). Overwriting with authoritative geocoded coordinates.",
+                                    ngoLat, ngoLng, String.format("%.2f", distanceKm), geoLat, geoLng);
+                            ngoLat = geoLat;
+                            ngoLng = geoLng;
+                            ngoLocSource = "GEOCODED";
+                        }
+                    } else {
+                        ngoLat = geoLat;
+                        ngoLng = geoLng;
+                        ngoLocSource = "GEOCODED";
+                    }
+                    log.info("Final NGO coordinates: lat={}, lon={}", ngoLat, ngoLng);
+                } else if (request.getLocation() != null && !request.getLocation().isBlank()) {
+                    log.info("Attempting geocoding resolution using NGO location reference: '{}'", request.getLocation());
+                    GeocodingResult locResult = geocodingService.geocodeAddress(request.getLocation());
+                    if (locResult.isSuccess()) {
+                        double geoLat = locResult.getLatitude();
+                        double geoLng = locResult.getLongitude();
+                        if (ngoLat != null && ngoLng != null) {
+                            double distanceKm = calculateDistanceKm(geoLat, geoLng, ngoLat, ngoLng);
+                            if (distanceKm <= 50.0) {
+                                log.info("Client confirmed NGO coordinates retained within location reference bounds.");
+                            } else {
+                                ngoLat = geoLat;
+                                ngoLng = geoLng;
+                                ngoLocSource = "GEOCODED";
+                            }
+                        } else {
+                            ngoLat = geoLat;
+                            ngoLng = geoLng;
+                            ngoLocSource = "GEOCODED";
+                        }
+                        log.info("Geocoding resolved NGO coordinates via location reference: lat={}, lon={}", ngoLat, ngoLng);
+                    } else if (ngoLat != null && ngoLng != null && isWithinIndiaBounds(ngoLat, ngoLng)) {
+                        log.info("Using verified NGO map coordinates within India bounds: lat={}, lon={}", ngoLat, ngoLng);
+                    } else {
+                        log.warn("NGO address geocoding failed for '{}': {}", ngoAddressQuery, result.getErrorMessage());
+                        throw new BadRequestException("NGO address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical NGO address.");
+                    }
+                } else if (ngoLat != null && ngoLng != null && isWithinIndiaBounds(ngoLat, ngoLng)) {
+                    log.info("Using verified NGO map coordinates within India bounds: lat={}, lon={}", ngoLat, ngoLng);
+                } else {
+                    log.warn("NGO address geocoding failed for '{}': {}", ngoAddressQuery, result.getErrorMessage());
+                    throw new BadRequestException("NGO address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical NGO address.");
+                }
+            } else if (ngoLat != null && ngoLng != null && isWithinIndiaBounds(ngoLat, ngoLng)) {
+                log.info("Using verified NGO coordinates without address query: lat={}, lon={}", ngoLat, ngoLng);
+            } else {
+                throw new BadRequestException("NGO physical address or verified map coordinates are required.");
+            }
+        }
+        validateCoordinates(ngoLat, ngoLng);
 
         // Base user mapping
         User.UserBuilder userBuilder = User.builder()
@@ -121,6 +296,7 @@ public class AuthServiceImpl implements AuthService {
                 .foodPreferences(request.getFoodPreferences())
                 .customerLatitude(custLat)
                 .customerLongitude(custLng)
+                .locationSource(isRestaurantOwner ? (restLocSource != null ? restLocSource : (restLat != null ? "USER_CONFIRMED_MAP" : null)) : (isNGO ? (ngoLocSource != null ? ngoLocSource : (ngoLat != null ? "USER_CONFIRMED_MAP" : null)) : (locSource != null ? locSource : (isCustomer && custLat != null ? "USER_CONFIRMED_MAP" : null))))
                 .restaurantName(request.getRestaurantName())
                 .restaurantDescription(request.getDescription())
                 .restaurantAddress(request.getRestaurantAddress())
@@ -144,6 +320,10 @@ public class AuthServiceImpl implements AuthService {
                 .ngoName(request.getNgoName())
                 .contactPerson(request.getContactPerson())
                 .ngoAddress(request.getNgoAddress())
+                .ngoCity(request.getNgoCity() != null ? request.getNgoCity() : (isNGO ? request.getCity() : null))
+                .ngoPincode(request.getNgoPincode() != null ? request.getNgoPincode() : (isNGO ? request.getPincode() : null))
+                .ngoLatitude(ngoLat)
+                .ngoLongitude(ngoLng)
                 .organizationInfo(request.getOrganizationInfo())
                 .foodRescueInfo(request.getFoodRescueInfo())
                 .oauth2Provider(request.getOauth2Provider())
@@ -207,7 +387,12 @@ public class AuthServiceImpl implements AuthService {
                             .ngoName(savedUser.getNgoName())
                             .contactPerson(savedUser.getContactPerson())
                             .ngoAddress(savedUser.getNgoAddress())
+                            .city(savedUser.getNgoCity())
+                            .pincode(savedUser.getNgoPincode())
+                            .latitude(savedUser.getNgoLatitude())
+                            .longitude(savedUser.getNgoLongitude())
                             .location(savedUser.getLocation())
+                            .locationSource(savedUser.getLocationSource())
                             .organizationInfo(savedUser.getOrganizationInfo())
                             .foodRescueInfo(savedUser.getFoodRescueInfo())
                             .build()
@@ -282,6 +467,7 @@ public class AuthServiceImpl implements AuthService {
                 .foodPreferences(user.getFoodPreferences())
                 .customerLatitude(user.getCustomerLatitude())
                 .customerLongitude(user.getCustomerLongitude())
+                .locationSource(user.getLocationSource())
                 .restaurantName(user.getRestaurantName())
                 .restaurantDescription(user.getRestaurantDescription())
                 .restaurantAddress(user.getRestaurantAddress())
@@ -305,9 +491,24 @@ public class AuthServiceImpl implements AuthService {
                 .ngoName(user.getNgoName())
                 .contactPerson(user.getContactPerson())
                 .ngoAddress(user.getNgoAddress())
+                .ngoCity(user.getNgoCity())
+                .ngoPincode(user.getNgoPincode())
+                .ngoLatitude(user.getNgoLatitude())
+                .ngoLongitude(user.getNgoLongitude())
                 .organizationInfo(user.getOrganizationInfo())
                 .foodRescueInfo(user.getFoodRescueInfo())
                 .build();
+    }
+
+    private double calculateDistanceKm(double lat1, double lon1, double lat2, double lon2) {
+        final int R = 6371; // Earth's radius in km
+        double latDistance = Math.toRadians(lat2 - lat1);
+        double lonDistance = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
     }
 
     private void validateCoordinates(Double latitude, Double longitude) {
@@ -317,6 +518,11 @@ public class AuthServiceImpl implements AuthService {
         if (longitude != null && (longitude < -180.0 || longitude > 180.0)) {
             throw new BadRequestException("Invalid longitude: Must be between -180 and 180 degrees");
         }
+    }
+
+    private boolean isWithinIndiaBounds(Double latitude, Double longitude) {
+        if (latitude == null || longitude == null) return false;
+        return latitude >= 6.0 && latitude <= 38.0 && longitude >= 68.0 && longitude <= 98.0;
     }
 
     private String buildAddressQuery(String streetAddress, String city, String pincode, String location) {

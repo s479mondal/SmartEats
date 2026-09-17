@@ -34,11 +34,12 @@ RDSS_PYTHON = os.path.join(RDSS_DIR, ".venv", "Scripts", "python.exe")
 os.environ["PATH"] = f"{NODE_DIR};{os.path.dirname(JAVA_EXE)};" + os.environ.get("PATH", "")
 
 def is_port_open(port):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(0.5)
-    res = s.connect_ex(('127.0.0.1', port))
-    s.close()
-    return res == 0
+    try:
+        s = socket.create_connection(('localhost', port), timeout=0.5)
+        s.close()
+        return True
+    except OSError:
+        return False
 
 def check_docker_infra():
     print("Checking Docker infrastructure (Kafka, Redis, Zookeeper)...")
@@ -167,52 +168,67 @@ def main():
     ]
     
     # Check already running vs needs starting
+    launched_procs = []
     for svc in services:
         if is_port_open(svc["port"]):
-            print(f"  [ALREADY RUNNING] {svc['name']}")
+            print(f"  [ALREADY RUNNING] {svc['name']}", flush=True)
         else:
-            launch_service(svc["name"], svc["cmd"], svc["cwd"], svc["log"])
+            p = launch_service(svc["name"], svc["cmd"], svc["cwd"], svc["log"])
+            launched_procs.append((svc["name"], p))
             
-    print("\nWaiting for all services to initialize and bind ports...")
+    print("\nWaiting for all services to initialize and bind ports...", flush=True)
     
     # Wait loop
     start_time = time.time()
-    max_wait = 45 # seconds
+    max_wait = 60 # seconds
     pending = list(services)
     
     while pending and (time.time() - start_time) < max_wait:
         still_pending = []
         for svc in pending:
             if is_port_open(svc["port"]):
-                print(f"  [ONLINE] {svc['name']} is ready!")
+                print(f"  [ONLINE] {svc['name']} is ready!", flush=True)
             else:
                 still_pending.append(svc)
         pending = still_pending
         if pending:
             time.sleep(2)
             
-    print("\n--------------------------------------------------")
-    print("             FINAL SYSTEM STATUS REPORT           ")
-    print("--------------------------------------------------")
+    print("\n--------------------------------------------------", flush=True)
+    print("             FINAL SYSTEM STATUS REPORT           ", flush=True)
+    print("--------------------------------------------------", flush=True)
     all_ok = True
     for svc in services:
         status = "HEALTHY & RUNNING" if is_port_open(svc["port"]) else "FAILED / PENDING"
         if "FAILED" in status:
             all_ok = False
-        print(f"  * {svc['name']:<30}: {status}")
+        print(f"  * {svc['name']:<30}: {status}", flush=True)
         
     for name, port in [("Redis Cache", 6379), ("Kafka Broker", 9092), ("Zookeeper", 2181)]:
         stat = "HEALTHY & RUNNING" if is_port_open(port) else "OFFLINE"
-        print(f"  * {name + f' (:{port})':<30}: {stat}")
+        print(f"  * {name + f' (:{port})':<30}: {stat}", flush=True)
         
-    print("--------------------------------------------------")
+    print("--------------------------------------------------", flush=True)
     if all_ok:
-        print("\nAll 8 application components + 3 infrastructure services are LIVE!")
-        print("Frontend UI is available at: http://localhost:3000")
-        print("API Gateway is available at:  http://localhost:8080")
-        print("RDSS AI Swagger API at:      http://localhost:8000/docs")
+        print("\nAll 8 application components + 3 infrastructure services are LIVE!", flush=True)
+        print("Frontend UI is available at: http://localhost:3000", flush=True)
+        print("API Gateway is available at:  http://localhost:8080", flush=True)
+        print("RDSS AI Swagger API at:      http://localhost:8000/docs", flush=True)
     else:
-        print("\nSome services took longer than expected to bind ports. Check logs/ directory.")
+        print("\nSome services took longer than expected to bind ports. Check logs/ directory.", flush=True)
+
+    print("\nSmartEats is actively running. Press Ctrl+C to stop all services.", flush=True)
+    try:
+        while True:
+            time.sleep(5)
+    except (KeyboardInterrupt, SystemExit):
+        print("\nShutting down SmartEats...", flush=True)
+        for name, p in launched_procs:
+            try:
+                p.terminate()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     main()
+

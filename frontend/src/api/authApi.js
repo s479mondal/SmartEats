@@ -14,5 +14,28 @@ export const authApi = {
   getProfile: async (email) => {
     const response = await apiClient.get(`/api/auth/profile?email=${encodeURIComponent(email)}`);
     return response.data;
+  },
+
+  searchLocations: async (query, signal) => {
+    const response = await apiClient.get('/api/auth/location/search', {
+      params: { query },
+      signal
+    });
+    return response.data?.data || response.data || [];
+  },
+
+  reverseGeocode: async (lat, lng, signal) => {
+    const response = await apiClient.get('/api/auth/location/reverse', {
+      params: { lat, lng },
+      signal
+    });
+    return response.data?.data || response.data;
+  },
+
+  lookupPincode: async (pincode, signal) => {
+    const response = await apiClient.get(`/api/auth/location/pincode/${encodeURIComponent(pincode)}`, {
+      signal
+    });
+    return response.data?.data || response.data;
   }
 };

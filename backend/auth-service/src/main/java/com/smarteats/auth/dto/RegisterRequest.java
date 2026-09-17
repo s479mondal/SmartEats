@@ -42,6 +42,7 @@ public class RegisterRequest {
     private List<String> foodPreferences;
     private Double customerLatitude;
     private Double customerLongitude;
+    private String locationSource;
 
     // Restaurant Owner Specific Fields (Section B & C)
     private String restaurantName;
@@ -52,6 +53,8 @@ public class RegisterRequest {
     private String pincode;
     private Double latitude;
     private Double longitude;
+    private Double restaurantLatitude;
+    private Double restaurantLongitude;
     private String cuisineType;
     private String restaurantContact;
     private String restaurantEmail;
@@ -71,6 +74,10 @@ public class RegisterRequest {
     private String ngoName;
     private String contactPerson;
     private String ngoAddress;
+    private String ngoCity;
+    private String ngoPincode;
+    private Double ngoLatitude;
+    private Double ngoLongitude;
     private String organizationInfo;
     private String foodRescueInfo;
 

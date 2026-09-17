@@ -29,6 +29,7 @@ public class UserDto {
     private List<String> foodPreferences;
     private Double customerLatitude;
     private Double customerLongitude;
+    private String locationSource;
     private String restaurantName;
     private String restaurantDescription;
     private String restaurantAddress;
@@ -52,6 +53,10 @@ public class UserDto {
     private String ngoName;
     private String contactPerson;
     private String ngoAddress;
+    private String ngoCity;
+    private String ngoPincode;
+    private Double ngoLatitude;
+    private Double ngoLongitude;
     private String organizationInfo;
     private String foodRescueInfo;
 }
