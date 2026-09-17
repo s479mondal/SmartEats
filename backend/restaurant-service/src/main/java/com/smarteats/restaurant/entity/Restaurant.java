@@ -44,6 +44,8 @@ public class Restaurant implements Serializable {
     private String cuisineType;
     private String openingTime;
     private String closingTime;
+    private Integer openingTimeMinutes;
+    private Integer closingTimeMinutes;
     private String logoUrl;
     private String businessRegistrationNumber;
     private String foodLicenseNumber;
@@ -68,13 +70,21 @@ public class Restaurant implements Serializable {
     private LocalDateTime updatedAt;
 
     public void syncGeoLocation() {
-        if (this.latitude != null && this.longitude != null 
-                && this.latitude >= -90.0 && this.latitude <= 90.0 
+        if (this.longitude != null && this.latitude != null
+                && this.latitude >= -90.0 && this.latitude <= 90.0
                 && this.longitude >= -180.0 && this.longitude <= 180.0) {
-            // GeoJSON coordinate order: [LONGITUDE, LATITUDE]
             this.geoLocation = new GeoJsonPoint(this.longitude, this.latitude);
         } else {
             this.geoLocation = null;
+        }
+    }
+
+    public void syncOperatingTimeMinutes() {
+        if (this.openingTime != null && this.openingTimeMinutes == null) {
+            this.openingTimeMinutes = com.smarteats.restaurant.util.RestaurantOperatingHoursUtil.timeToMinutes(this.openingTime);
+        }
+        if (this.closingTime != null && this.closingTimeMinutes == null) {
+            this.closingTimeMinutes = com.smarteats.restaurant.util.RestaurantOperatingHoursUtil.timeToMinutes(this.closingTime);
         }
     }
 }

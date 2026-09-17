@@ -52,8 +52,10 @@ class RestaurantOperatingHoursApiTest {
         Restaurant restaurant = Restaurant.builder()
                 .id("rest_test_1")
                 .name("Kolkata Biryani Hub")
-                .openingTime("10:00 AM")
-                .closingTime("11:00 PM")
+                .openingTime("10:00")
+                .closingTime("23:00")
+                .openingTimeMinutes(600)
+                .closingTimeMinutes(1380)
                 .open(true)
                 .approved(true)
                 .status("ACTIVE")
@@ -65,6 +67,8 @@ class RestaurantOperatingHoursApiTest {
 
         assertNotNull(response);
         assertTrue(response.isOpen(), "Restaurant must be dynamically calculated as open at 2:30 PM");
+        assertEquals(600, response.getOpeningTimeMinutes());
+        assertEquals(1380, response.getClosingTimeMinutes());
     }
 
     @Test
@@ -85,8 +89,10 @@ class RestaurantOperatingHoursApiTest {
         Restaurant restaurant = Restaurant.builder()
                 .id("rest_test_2")
                 .name("Kolkata Biryani Hub")
-                .openingTime("10:00 AM")
-                .closingTime("11:00 PM")
+                .openingTime("10:00")
+                .closingTime("22:00")
+                .openingTimeMinutes(600)
+                .closingTimeMinutes(1320)
                 .open(true)
                 .approved(true)
                 .status("ACTIVE")
@@ -101,9 +107,9 @@ class RestaurantOperatingHoursApiTest {
     }
 
     @Test
-    @DisplayName("API TEST: Overnight operating hours evaluate accurately across midnight")
+    @DisplayName("API TEST: Overnight operating hours evaluate accurately across midnight using numeric minutes")
     void testOvernightRestaurantEvaluation() {
-        // 2026-09-18T00:30:00+05:30 (12:30 AM IST) -> inside 10:00 PM to 2:00 AM
+        // 2026-09-18T00:30:00+05:30 (12:30 AM IST) -> inside 22:00 to 02:00 (1320 to 120)
         Instant midnightSpan = Instant.parse("2026-09-17T19:00:00Z"); // 19:00 UTC = 00:30 IST next day
         Clock fixedClock = Clock.fixed(midnightSpan, IST);
 
@@ -118,8 +124,10 @@ class RestaurantOperatingHoursApiTest {
         Restaurant restaurant = Restaurant.builder()
                 .id("rest_overnight")
                 .name("Midnight Diner")
-                .openingTime("10:00 PM")
-                .closingTime("2:00 AM")
+                .openingTime("22:00")
+                .closingTime("02:00")
+                .openingTimeMinutes(1320)
+                .closingTimeMinutes(120)
                 .open(true)
                 .approved(true)
                 .status("ACTIVE")
@@ -131,5 +139,40 @@ class RestaurantOperatingHoursApiTest {
 
         assertNotNull(response);
         assertTrue(response.isOpen(), "Overnight restaurant must be open at 12:30 AM");
+    }
+
+    @Test
+    @DisplayName("API TEST: Manual open = false overrides schedule and closes kitchen")
+    void testManualCloseOverride() {
+        // 2026-09-18T14:30:00+05:30 (2:30 PM IST)
+        Instant instant = Instant.parse("2026-09-18T09:00:00Z");
+        Clock fixedClock = Clock.fixed(instant, IST);
+
+        RestaurantServiceImpl service = new RestaurantServiceImpl(
+                restaurantRepository,
+                menuItemRepository,
+                profileChangeRequestRepository,
+                null,
+                fixedClock
+        );
+
+        Restaurant restaurant = Restaurant.builder()
+                .id("rest_manual_closed")
+                .name("Kolkata Biryani Hub")
+                .openingTime("10:00")
+                .closingTime("22:00")
+                .openingTimeMinutes(600)
+                .closingTimeMinutes(1320)
+                .open(false) // Kitchen manually toggled OFF
+                .approved(true)
+                .status("ACTIVE")
+                .build();
+
+        when(restaurantRepository.findById("rest_manual_closed")).thenReturn(Optional.of(restaurant));
+
+        RestaurantResponse response = service.getRestaurantById("rest_manual_closed");
+
+        assertNotNull(response);
+        assertFalse(response.isOpen(), "Restaurant must be closed if manualOpen is false");
     }
 }

@@ -20,6 +20,8 @@ public class RestaurantRequest {
     private String cuisineType;
     private String openingTime;
     private String closingTime;
+    private Integer openingTimeMinutes;
+    private Integer closingTimeMinutes;
     private String logoUrl;
     private Boolean open;
     private Double latitude;

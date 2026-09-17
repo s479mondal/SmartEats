@@ -1,6 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
-export default function RestaurantCard({ restaurant, dark = false }) {
+export default function RestaurantCard({ restaurant, dark = false, onClick }) {
+  const navigate = useNavigate();
+
   const isOpen = restaurant.open !== undefined 
     ? Boolean(restaurant.open) 
     : (restaurant.status?.toLowerCase() === 'open');
@@ -14,8 +17,28 @@ export default function RestaurantCard({ restaurant, dark = false }) {
 
   const isDarkMode = dark;
 
+  const handleClick = (e) => {
+    if (onClick) {
+      onClick(restaurant);
+      return;
+    }
+    const restId = restaurant.id || restaurant._id;
+    if (restId) {
+      navigate(`/customer/restaurants/${restId}`);
+    }
+  };
+
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleClick(e);
+        }
+      }}
       style={{
         background: isDarkMode ? 'var(--bg-card, rgba(22, 31, 49, 0.7))' : 'white',
         border: isDarkMode ? '1px solid var(--bg-card-border, rgba(255, 255, 255, 0.08))' : '1px solid #e2e8f0',
@@ -26,7 +49,9 @@ export default function RestaurantCard({ restaurant, dark = false }) {
         display: 'flex',
         flexDirection: 'column',
         fontFamily: 'var(--font-body)',
-        color: isDarkMode ? 'var(--text-main, #f8fafc)' : '#0f172a'
+        color: isDarkMode ? 'var(--text-main, #f8fafc)' : '#0f172a',
+        cursor: 'pointer',
+        userSelect: 'none'
       }}
       onMouseOver={(e) => {
         e.currentTarget.style.transform = 'translateY(-4px)';

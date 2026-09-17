@@ -46,8 +46,8 @@ export default function Register() {
   const [restaurantAddress, setRestaurantAddress] = useState('');
   const [city, setCity] = useState('');
   const [pincode, setPincode] = useState('');
-  const [openingTime, setOpeningTime] = useState('10:00 AM');
-  const [closingTime, setClosingTime] = useState('10:00 PM');
+  const [openingTime, setOpeningTime] = useState('10:00');
+  const [closingTime, setClosingTime] = useState('22:00');
   const [logoUrl, setLogoUrl] = useState('');
   const [confirmedRestaurantLocation, setConfirmedRestaurantLocation] = useState(null);
   const [restaurantPinLoading, setRestaurantPinLoading] = useState(false);
@@ -414,10 +414,18 @@ export default function Register() {
       }
     }
 
-    // Restaurant Map Location Verification Guard
+    // Restaurant Map Location & Operating Hours Verification Guard
     if (selectedRole === 'RESTAURANT') {
       if (!confirmedRestaurantLocation || !confirmedRestaurantLocation.latitude || !confirmedRestaurantLocation.longitude) {
         setError('Please pinpoint and click "Confirm Location" on the restaurant map before completing registration.');
+        return;
+      }
+      if (!openingTime || !closingTime) {
+        setError('Please select valid Opening Time and Closing Time for the restaurant.');
+        return;
+      }
+      if (openingTime === closingTime) {
+        setError('Opening time and Closing time cannot be identical. The kitchen would be permanently closed.');
         return;
       }
     }
@@ -1077,12 +1085,24 @@ export default function Register() {
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Opening Time</label>
-                      <input type="text" value={openingTime} onChange={(e) => setOpeningTime(e.target.value)} placeholder="10:00 AM" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Opening Time *</label>
+                      <input
+                        type="time"
+                        required
+                        value={openingTime}
+                        onChange={(e) => setOpeningTime(e.target.value)}
+                        style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px', colorScheme: 'dark' }}
+                      />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Closing Time</label>
-                      <input type="text" value={closingTime} onChange={(e) => setClosingTime(e.target.value)} placeholder="10:00 PM" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Closing Time *</label>
+                      <input
+                        type="time"
+                        required
+                        value={closingTime}
+                        onChange={(e) => setClosingTime(e.target.value)}
+                        style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px', colorScheme: 'dark' }}
+                      />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Logo / Image URL</label>

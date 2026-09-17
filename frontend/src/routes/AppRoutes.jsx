@@ -9,6 +9,7 @@ import ApplicationPending from '../pages/public/ApplicationPending';
 import CustomerPortal from '../components/CustomerPortal';
 import RescueOffersPage from '../pages/customer/RescueOffersPage';
 import PreferencesPage from '../pages/customer/PreferencesPage';
+import RestaurantDetailPage from '../pages/customer/RestaurantDetailPage';
 import RestaurantRdssDashboard from '../components/RestaurantRdssDashboard';
 import DriverPortal from '../components/DriverPortal';
 import NgoDashboard from '../pages/ngo/NgoDashboard';
@@ -87,6 +88,7 @@ export default function AppRoutes() {
           <Route path="/about" element={<ComingSoon title="About SmartEats" />} />
           <Route path="/contact" element={<ComingSoon title="Contact Desk" />} />
           <Route path="/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
+          <Route path="/restaurants/:restaurantId" element={<RestaurantDetailPage cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
           <Route path="/food-rescue" element={<RescueOffersPage addToCart={addToCart} />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -95,6 +97,7 @@ export default function AppRoutes() {
           {/* Customer Routes */}
           <Route path="/customer/dashboard" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
           <Route path="/customer/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
+          <Route path="/customer/restaurants/:restaurantId" element={<RestaurantDetailPage cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
           <Route path="/customer/rescue" element={<RescueOffersPage addToCart={addToCart} />} />
           <Route path="/customer/preferences" element={<PreferencesPage />} />
 

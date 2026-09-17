@@ -34,6 +34,8 @@ public class RestaurantOwnerRegisteredEvent implements Serializable {
     private Double longitude;
     private String openingTime;
     private String closingTime;
+    private Integer openingTimeMinutes;
+    private Integer closingTimeMinutes;
     private String logoUrl;
 
     // Section C: Verification Information

@@ -94,6 +94,39 @@ public class RestaurantServiceImpl implements RestaurantService {
 
         validateCoordinates(lat, lon);
 
+        Integer openMins = request.getOpeningTimeMinutes();
+        Integer closeMins = request.getClosingTimeMinutes();
+        String openStr = request.getOpeningTime();
+        String closeStr = request.getClosingTime();
+
+        if (openStr != null && !openStr.isBlank()) {
+            openMins = RestaurantOperatingHoursUtil.timeToMinutes(openStr);
+            if (openMins == null) {
+                throw new BadRequestException("Invalid opening time format: '" + openStr + "'. Expected valid time (e.g. HH:mm or 10:00 AM)");
+            }
+        } else if (openMins != null) {
+            if (openMins < 0 || openMins > 1439) {
+                throw new BadRequestException("Invalid openingTimeMinutes: must be between 0 and 1439");
+            }
+        } else {
+            openStr = "10:00";
+            openMins = 600;
+        }
+
+        if (closeStr != null && !closeStr.isBlank()) {
+            closeMins = RestaurantOperatingHoursUtil.timeToMinutes(closeStr);
+            if (closeMins == null) {
+                throw new BadRequestException("Invalid closing time format: '" + closeStr + "'. Expected valid time (e.g. HH:mm or 10:00 PM)");
+            }
+        } else if (closeMins != null) {
+            if (closeMins < 0 || closeMins > 1439) {
+                throw new BadRequestException("Invalid closingTimeMinutes: must be between 0 and 1439");
+            }
+        } else {
+            closeStr = "22:00";
+            closeMins = 1320;
+        }
+
         Restaurant restaurant = Restaurant.builder()
                 .name(request.getName())
                 .description(request.getDescription())
@@ -106,8 +139,10 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .phone(request.getPhone())
                 .email(request.getEmail() != null ? request.getEmail() : ownerEmail)
                 .cuisineType(request.getCuisineType())
-                .openingTime(request.getOpeningTime() != null ? request.getOpeningTime() : "10:00 AM")
-                .closingTime(request.getClosingTime() != null ? request.getClosingTime() : "10:00 PM")
+                .openingTime(openStr)
+                .closingTime(closeStr)
+                .openingTimeMinutes(openMins)
+                .closingTimeMinutes(closeMins)
                 .logoUrl(request.getLogoUrl())
                 .approved(false) // Needs admin approval
                 .status("PENDING")
@@ -115,6 +150,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .build();
 
         restaurant.syncGeoLocation();
+        restaurant.syncOperatingTimeMinutes();
         Restaurant saved = restaurantRepository.save(restaurant);
         return mapToResponse(saved);
     }
@@ -151,8 +187,34 @@ public class RestaurantServiceImpl implements RestaurantService {
         if (request.getDescription() != null) restaurant.setDescription(request.getDescription());
         if (request.getPhone() != null) restaurant.setPhone(request.getPhone());
         if (request.getEmail() != null) restaurant.setEmail(request.getEmail());
-        if (request.getOpeningTime() != null) restaurant.setOpeningTime(request.getOpeningTime());
-        if (request.getClosingTime() != null) restaurant.setClosingTime(request.getClosingTime());
+        if (request.getOpeningTime() != null) {
+            Integer m = RestaurantOperatingHoursUtil.timeToMinutes(request.getOpeningTime());
+            if (m == null) {
+                throw new BadRequestException("Invalid opening time format: '" + request.getOpeningTime() + "'");
+            }
+            restaurant.setOpeningTime(request.getOpeningTime());
+            restaurant.setOpeningTimeMinutes(m);
+        } else if (request.getOpeningTimeMinutes() != null) {
+            if (request.getOpeningTimeMinutes() < 0 || request.getOpeningTimeMinutes() > 1439) {
+                throw new BadRequestException("Invalid openingTimeMinutes: must be between 0 and 1439");
+            }
+            restaurant.setOpeningTimeMinutes(request.getOpeningTimeMinutes());
+        }
+
+        if (request.getClosingTime() != null) {
+            Integer m = RestaurantOperatingHoursUtil.timeToMinutes(request.getClosingTime());
+            if (m == null) {
+                throw new BadRequestException("Invalid closing time format: '" + request.getClosingTime() + "'");
+            }
+            restaurant.setClosingTime(request.getClosingTime());
+            restaurant.setClosingTimeMinutes(m);
+        } else if (request.getClosingTimeMinutes() != null) {
+            if (request.getClosingTimeMinutes() < 0 || request.getClosingTimeMinutes() > 1439) {
+                throw new BadRequestException("Invalid closingTimeMinutes: must be between 0 and 1439");
+            }
+            restaurant.setClosingTimeMinutes(request.getClosingTimeMinutes());
+        }
+
         if (request.getLogoUrl() != null) restaurant.setLogoUrl(request.getLogoUrl());
         if (request.getOpen() != null) restaurant.setOpen(request.getOpen());
         if (request.getCuisineType() != null) restaurant.setCuisineType(request.getCuisineType());
@@ -166,6 +228,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         }
 
         restaurant.syncGeoLocation();
+        restaurant.syncOperatingTimeMinutes();
         Restaurant saved = restaurantRepository.save(restaurant);
         return mapToResponse(saved);
     }
@@ -298,8 +361,34 @@ public class RestaurantServiceImpl implements RestaurantService {
         if (request.getDescription() != null) restaurant.setDescription(request.getDescription());
         if (request.getPhone() != null) restaurant.setPhone(request.getPhone());
         if (request.getEmail() != null) restaurant.setEmail(request.getEmail());
-        if (request.getOpeningTime() != null) restaurant.setOpeningTime(request.getOpeningTime());
-        if (request.getClosingTime() != null) restaurant.setClosingTime(request.getClosingTime());
+        if (request.getOpeningTime() != null) {
+            Integer m = RestaurantOperatingHoursUtil.timeToMinutes(request.getOpeningTime());
+            if (m == null) {
+                throw new BadRequestException("Invalid opening time format: '" + request.getOpeningTime() + "'");
+            }
+            restaurant.setOpeningTime(request.getOpeningTime());
+            restaurant.setOpeningTimeMinutes(m);
+        } else if (request.getOpeningTimeMinutes() != null) {
+            if (request.getOpeningTimeMinutes() < 0 || request.getOpeningTimeMinutes() > 1439) {
+                throw new BadRequestException("Invalid openingTimeMinutes: must be between 0 and 1439");
+            }
+            restaurant.setOpeningTimeMinutes(request.getOpeningTimeMinutes());
+        }
+
+        if (request.getClosingTime() != null) {
+            Integer m = RestaurantOperatingHoursUtil.timeToMinutes(request.getClosingTime());
+            if (m == null) {
+                throw new BadRequestException("Invalid closing time format: '" + request.getClosingTime() + "'");
+            }
+            restaurant.setClosingTime(request.getClosingTime());
+            restaurant.setClosingTimeMinutes(m);
+        } else if (request.getClosingTimeMinutes() != null) {
+            if (request.getClosingTimeMinutes() < 0 || request.getClosingTimeMinutes() > 1439) {
+                throw new BadRequestException("Invalid closingTimeMinutes: must be between 0 and 1439");
+            }
+            restaurant.setClosingTimeMinutes(request.getClosingTimeMinutes());
+        }
+
         if (request.getLogoUrl() != null) restaurant.setLogoUrl(request.getLogoUrl());
         if (request.getOpen() != null) restaurant.setOpen(request.getOpen());
         if (request.getCuisineType() != null) restaurant.setCuisineType(request.getCuisineType());
@@ -313,6 +402,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         }
 
         restaurant.syncGeoLocation();
+        restaurant.syncOperatingTimeMinutes();
         Restaurant saved = restaurantRepository.save(restaurant);
         return mapToResponse(saved);
     }
@@ -514,8 +604,11 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     private RestaurantResponse mapToResponse(Restaurant r) {
+        r.syncOperatingTimeMinutes();
         LocalTime currentTime = LocalTime.now(clock);
         boolean calculatedOpen = RestaurantOperatingHoursUtil.isCurrentlyOpen(
+                r.getOpeningTimeMinutes(),
+                r.getClosingTimeMinutes(),
                 r.getOpeningTime(),
                 r.getClosingTime(),
                 r.isOpen(),
@@ -540,6 +633,8 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .cuisineType(r.getCuisineType())
                 .openingTime(r.getOpeningTime())
                 .closingTime(r.getClosingTime())
+                .openingTimeMinutes(r.getOpeningTimeMinutes())
+                .closingTimeMinutes(r.getClosingTimeMinutes())
                 .logoUrl(r.getLogoUrl())
                 .businessRegistrationNumber(r.getBusinessRegistrationNumber())
                 .foodLicenseNumber(r.getFoodLicenseNumber())

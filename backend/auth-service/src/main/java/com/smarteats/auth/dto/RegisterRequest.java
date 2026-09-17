@@ -60,6 +60,8 @@ public class RegisterRequest {
     private String restaurantEmail;
     private String openingTime;
     private String closingTime;
+    private Integer openingTimeMinutes;
+    private Integer closingTimeMinutes;
     private String logoUrl;
     private String businessRegistrationNumber;
     private String foodLicenseNumber;

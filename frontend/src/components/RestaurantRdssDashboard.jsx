@@ -2,6 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { restaurantOwnerApi, rdssApi } from '../api/orderApi';
 import { useAuth } from '../context/AuthContext';
 
+const normalizeToTimeInputValue = (timeStr, defaultVal = '10:00') => {
+  if (!timeStr) return defaultVal;
+  const cleaned = timeStr.trim();
+  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(cleaned)) {
+    return cleaned;
+  }
+  const match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (match) {
+    let hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = match[3] ? match[3].toUpperCase() : null;
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return `${String(hours).padStart(2, '0')}:${minutes}`;
+  }
+  return defaultVal;
+};
+
 export default function RestaurantRdssDashboard() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'profile', 'menu', 'orders', 'ai'
@@ -12,8 +30,8 @@ export default function RestaurantRdssDashboard() {
     description: '',
     phone: '',
     email: '',
-    openingTime: '10:00 AM',
-    closingTime: '10:00 PM',
+    openingTime: '10:00',
+    closingTime: '22:00',
     logoUrl: '',
     open: true,
     cuisineType: ''
@@ -100,8 +118,8 @@ export default function RestaurantRdssDashboard() {
           description: data.description || '',
           phone: data.phone || '',
           email: data.email || user?.email || '',
-          openingTime: data.openingTime || '10:00 AM',
-          closingTime: data.closingTime || '10:00 PM',
+          openingTime: normalizeToTimeInputValue(data.openingTime, '10:00'),
+          closingTime: normalizeToTimeInputValue(data.closingTime, '22:00'),
           logoUrl: data.logoUrl || '',
           open: data.open ?? true,
           cuisineType: data.cuisineType || ''
@@ -569,19 +587,19 @@ export default function RestaurantRdssDashboard() {
                 <div>
                   <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Opening Time</label>
                   <input
-                    type="text"
+                    type="time"
                     value={profileForm.openingTime}
                     onChange={(e) => setProfileForm({ ...profileForm, openingTime: e.target.value })}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', colorScheme: 'dark' }}
                   />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Closing Time</label>
                   <input
-                    type="text"
+                    type="time"
                     value={profileForm.closingTime}
                     onChange={(e) => setProfileForm({ ...profileForm, closingTime: e.target.value })}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', colorScheme: 'dark' }}
                   />
                 </div>
                 <div>

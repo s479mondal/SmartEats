@@ -11,6 +11,7 @@ import java.util.Locale;
 
 /**
  * Reusable utility for calculating dynamic restaurant operating-hour status.
+ * Supports numeric minutes from midnight (0–1439) and resilient string parsing.
  * All time comparisons are strictly evaluated in the Asia/Kolkata (IST) timezone.
  */
 @Slf4j
@@ -19,14 +20,14 @@ public final class RestaurantOperatingHoursUtil {
     public static final ZoneId ZONE_ASIA_KOLKATA = ZoneId.of("Asia/Kolkata");
 
     private static final List<DateTimeFormatter> FORMATTERS = List.of(
+            DateTimeFormatter.ofPattern("H:mm"),
+            DateTimeFormatter.ofPattern("HH:mm"),
             new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("h:mm a").toFormatter(Locale.ENGLISH),
             new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("hh:mm a").toFormatter(Locale.ENGLISH),
             new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("h:mma").toFormatter(Locale.ENGLISH),
             new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("hh:mma").toFormatter(Locale.ENGLISH),
             new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("h a").toFormatter(Locale.ENGLISH),
             new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern("ha").toFormatter(Locale.ENGLISH),
-            DateTimeFormatter.ofPattern("H:mm"),
-            DateTimeFormatter.ofPattern("HH:mm"),
             DateTimeFormatter.ofPattern("H:mm:ss"),
             DateTimeFormatter.ofPattern("HH:mm:ss")
     );
@@ -37,7 +38,7 @@ public final class RestaurantOperatingHoursUtil {
 
     /**
      * Parses a string representation of time into a java.time.LocalTime.
-     * Supports various 12-hour (e.g. "10:00 AM", "2:00 AM") and 24-hour (e.g. "10:00", "22:00") formats.
+     * Supports standard 24-hour (e.g. "10:00", "22:00") and 12-hour (e.g. "10:00 AM", "2:00 AM") formats.
      * Returns null safely if the string is null, empty, or unparseable.
      *
      * @param timeStr Time string from database/request
@@ -63,74 +64,119 @@ public final class RestaurantOperatingHoursUtil {
     }
 
     /**
-     * Determines whether the given currentTime is strictly within the operating hours window.
-     * Uses a half-open interval: openingTime <= currentTime < closingTime.
-     * Supports both standard daytime hours (e.g. 10:00 to 23:00) and overnight spans (e.g. 22:00 to 02:00).
-     * Equal opening and closing times (e.g. 10:00 to 10:00) are treated as CLOSED.
+     * Converts a time string into minutes from midnight (0–1439).
      *
-     * @param openTime    Parsed opening time
-     * @param closeTime   Parsed closing time
-     * @param currentTime Current comparison time
-     * @return true if currentTime falls inside the operating window
+     * @param timeStr Time string (e.g. "10:00", "10:00 AM", "22:00")
+     * @return Minutes from midnight (0..1439) or null if invalid
+     */
+    public static Integer timeToMinutes(String timeStr) {
+        LocalTime lt = parseTime(timeStr);
+        return timeToMinutes(lt);
+    }
+
+    /**
+     * Converts a LocalTime into minutes from midnight (0–1439).
+     *
+     * @param time LocalTime instance
+     * @return Minutes from midnight (0..1439) or null if null
+     */
+    public static Integer timeToMinutes(LocalTime time) {
+        if (time == null) {
+            return null;
+        }
+        return time.getHour() * 60 + time.getMinute();
+    }
+
+    /**
+     * Determines whether currentMinutes falls within the operating window defined in minutes from midnight.
+     * Uses a half-open interval: openMinutes <= currentMinutes < closeMinutes.
+     * Supports standard daytime spans (e.g. 600 to 1320) and overnight spans (e.g. 1320 to 120).
+     * Equal opening and closing times (e.g. 600 to 600) are treated as CLOSED.
+     *
+     * @param openMinutes    Opening time in minutes from midnight (0..1439)
+     * @param closeMinutes   Closing time in minutes from midnight (0..1439)
+     * @param currentMinutes Current time in minutes from midnight (0..1439)
+     * @return true if within operating window
+     */
+    public static boolean isWithinOperatingHours(Integer openMinutes, Integer closeMinutes, Integer currentMinutes) {
+        if (openMinutes == null || closeMinutes == null || currentMinutes == null) {
+            return false;
+        }
+
+        if (openMinutes < 0 || openMinutes > 1439 || closeMinutes < 0 || closeMinutes > 1439 || currentMinutes < 0 || currentMinutes > 1439) {
+            return false;
+        }
+
+        // Same opening and closing time is treated as CLOSED
+        if (openMinutes.equals(closeMinutes)) {
+            return false;
+        }
+
+        if (closeMinutes < openMinutes) {
+            // Overnight operating window (e.g. 1320 [22:00] to 120 [02:00])
+            // Active if currentMinutes >= openMinutes OR currentMinutes < closeMinutes
+            return currentMinutes >= openMinutes || currentMinutes < closeMinutes;
+        } else {
+            // Normal daytime operating window (e.g. 600 [10:00] to 1320 [22:00])
+            // Active if currentMinutes >= openMinutes AND currentMinutes < closeMinutes
+            return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
+        }
+    }
+
+    /**
+     * Determines whether the given currentTime is strictly within the operating hours window.
      */
     public static boolean isWithinOperatingHours(LocalTime openTime, LocalTime closeTime, LocalTime currentTime) {
         if (openTime == null || closeTime == null || currentTime == null) {
             return false;
         }
-
-        // Same opening and closing time is treated as CLOSED as per specification
-        if (openTime.equals(closeTime)) {
-            return false;
-        }
-
-        if (closeTime.isBefore(openTime)) {
-            // Overnight operating window (e.g. 22:00 to 02:00)
-            // Active if currentTime >= openTime OR currentTime < closeTime
-            return !currentTime.isBefore(openTime) || currentTime.isBefore(closeTime);
-        } else {
-            // Normal operating window (e.g. 10:00 to 23:00)
-            // Active if currentTime >= openTime AND currentTime < closeTime (half-open [open, close))
-            return !currentTime.isBefore(openTime) && currentTime.isBefore(closeTime);
-        }
+        return isWithinOperatingHours(timeToMinutes(openTime), timeToMinutes(closeTime), timeToMinutes(currentTime));
     }
 
     /**
-     * Determines whether a restaurant is currently open based on operating schedule, manual toggle, and explicit currentTime.
-     *
-     * @param openingTimeStr Raw opening time string (e.g. "10:00 AM")
-     * @param closingTimeStr Raw closing time string (e.g. "11:00 PM")
-     * @param manualOpen     Manual kitchen toggle state (if false, force closed)
-     * @param currentTime    Current time to evaluate against
-     * @return true if restaurant is open and accepting orders
+     * Determines whether a restaurant is currently open based on numeric minute fields with string fallbacks.
      */
-    public static boolean isCurrentlyOpen(String openingTimeStr, String closingTimeStr, Boolean manualOpen, LocalTime currentTime) {
+    public static boolean isCurrentlyOpen(Integer openMinutes, Integer closeMinutes, String openingTimeStr, String closingTimeStr, Boolean manualOpen, LocalTime currentTime) {
         boolean manual = manualOpen == null || manualOpen;
         if (!manual) {
-            // Owner manually closed kitchen
             return false;
         }
 
-        LocalTime openTime = parseTime(openingTimeStr);
-        LocalTime closeTime = parseTime(closingTimeStr);
+        if (openMinutes == null && openingTimeStr != null) {
+            openMinutes = timeToMinutes(openingTimeStr);
+        }
+        if (closeMinutes == null && closingTimeStr != null) {
+            closeMinutes = timeToMinutes(closingTimeStr);
+        }
 
-        if (openTime == null || closeTime == null) {
-            // Missing or unparseable hours default safely to CLOSED
+        if (openMinutes == null || closeMinutes == null || currentTime == null) {
             return false;
         }
 
-        return isWithinOperatingHours(openTime, closeTime, currentTime);
+        int currentMinutes = currentTime.getHour() * 60 + currentTime.getMinute();
+        return isWithinOperatingHours(openMinutes, closeMinutes, currentMinutes);
+    }
+
+    /**
+     * Determines whether a restaurant is currently open based on operating schedule strings and manual toggle.
+     */
+    public static boolean isCurrentlyOpen(String openingTimeStr, String closingTimeStr, Boolean manualOpen, LocalTime currentTime) {
+        return isCurrentlyOpen(null, null, openingTimeStr, closingTimeStr, manualOpen, currentTime);
     }
 
     /**
      * Determines whether a restaurant is currently open in Asia/Kolkata real time.
-     *
-     * @param openingTimeStr Raw opening time string
-     * @param closingTimeStr Raw closing time string
-     * @param manualOpen     Manual kitchen toggle state
-     * @return true if restaurant is open right now in Asia/Kolkata
      */
     public static boolean isCurrentlyOpen(String openingTimeStr, String closingTimeStr, Boolean manualOpen) {
         LocalTime now = LocalTime.now(ZONE_ASIA_KOLKATA);
         return isCurrentlyOpen(openingTimeStr, closingTimeStr, manualOpen, now);
+    }
+
+    /**
+     * Determines whether a restaurant is currently open in Asia/Kolkata real time using numeric minutes with string fallback.
+     */
+    public static boolean isCurrentlyOpen(Integer openMinutes, Integer closeMinutes, String openingTimeStr, String closingTimeStr, Boolean manualOpen) {
+        LocalTime now = LocalTime.now(ZONE_ASIA_KOLKATA);
+        return isCurrentlyOpen(openMinutes, closeMinutes, openingTimeStr, closingTimeStr, manualOpen, now);
     }
 }

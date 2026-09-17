@@ -44,8 +44,10 @@ public class AuthEventListener {
                         .phone(event.getPhone() != null ? event.getPhone() : event.getRestaurantContact())
                         .email(event.getRestaurantEmail() != null ? event.getRestaurantEmail() : event.getEmail())
                         .cuisineType(event.getCuisineType() != null ? event.getCuisineType() : "Multi-Cuisine")
-                        .openingTime(event.getOpeningTime() != null ? event.getOpeningTime() : "10:00 AM")
-                        .closingTime(event.getClosingTime() != null ? event.getClosingTime() : "10:00 PM")
+                        .openingTime(event.getOpeningTime() != null ? event.getOpeningTime() : "10:00")
+                        .closingTime(event.getClosingTime() != null ? event.getClosingTime() : "22:00")
+                        .openingTimeMinutes(event.getOpeningTimeMinutes() != null ? event.getOpeningTimeMinutes() : com.smarteats.restaurant.util.RestaurantOperatingHoursUtil.timeToMinutes(event.getOpeningTime() != null ? event.getOpeningTime() : "10:00"))
+                        .closingTimeMinutes(event.getClosingTimeMinutes() != null ? event.getClosingTimeMinutes() : com.smarteats.restaurant.util.RestaurantOperatingHoursUtil.timeToMinutes(event.getClosingTime() != null ? event.getClosingTime() : "22:00"))
                         .logoUrl(event.getLogoUrl())
                         .businessRegistrationNumber(event.getBusinessRegistrationNumber())
                         .foodLicenseNumber(event.getFoodLicenseNumber())
@@ -56,6 +58,7 @@ public class AuthEventListener {
                         .build();
 
                 restaurant.syncGeoLocation();
+                restaurant.syncOperatingTimeMinutes();
                 Restaurant saved = restaurantRepository.save(restaurant);
                 log.info("Created restaurant profile with ID '{}' for owner '{}'", saved.getId(), event.getEmail());
             }
