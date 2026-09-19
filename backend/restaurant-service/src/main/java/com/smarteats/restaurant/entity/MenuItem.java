@@ -25,4 +25,5 @@ public class MenuItem implements Serializable {
     private double price;
     private boolean available;
     private String category;
+    private Integer availableQuantity;
 }

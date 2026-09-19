@@ -16,6 +16,7 @@ public class RouteValidator {
             "/api/auth/location/search",
             "/api/auth/location/reverse",
             "/api/auth/location/pincode",
+            "/api/orders/payment/webhook",
             "/v3/api-docs",
             "/swagger-ui",
             "/swagger-ui.html",

@@ -33,4 +33,8 @@ public interface RestaurantService {
     MenuItemResponse updateMenuItem(String restaurantId, String itemId, MenuItemRequest request, String ownerEmail);
     void deleteMenuItem(String restaurantId, String itemId, String ownerEmail);
     MenuItemResponse toggleMenuItemAvailability(String restaurantId, String itemId, boolean available, String ownerEmail);
+
+    // Inventory management (Atomic Reservation & Release)
+    com.smarteats.restaurant.dto.InventoryBatchReservationResponse reserveInventory(String restaurantId, com.smarteats.restaurant.dto.InventoryBatchReservationRequest request);
+    com.smarteats.restaurant.dto.InventoryBatchReservationResponse releaseInventory(String restaurantId, com.smarteats.restaurant.dto.InventoryBatchReservationRequest request);
 }

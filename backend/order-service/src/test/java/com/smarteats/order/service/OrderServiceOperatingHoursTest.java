@@ -48,6 +48,9 @@ class OrderServiceOperatingHoursTest {
     @Mock
     private RestaurantServiceClient restaurantServiceClient;
 
+    @Mock
+    private com.smarteats.order.client.RazorpayClientWrapper razorpayClientWrapper;
+
     private OrderServiceImpl orderService;
 
     private final String customerEmail = "customer@smarteats.com";
@@ -60,10 +63,12 @@ class OrderServiceOperatingHoursTest {
                 redisTemplate,
                 kafkaTemplate,
                 authServiceClient,
-                restaurantServiceClient
+                restaurantServiceClient,
+                razorpayClientWrapper
         );
         ReflectionTestUtils.setField(orderService, "orderCreatedTopic", "smarteats.order.created");
         ReflectionTestUtils.setField(orderService, "orderStatusTopic", "smarteats.order.status");
+        org.mockito.Mockito.lenient().when(restaurantServiceClient.reserveInventory(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
     }
 
     @Test

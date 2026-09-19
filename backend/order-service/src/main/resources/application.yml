@@ -6,6 +6,7 @@ spring:
     name: order-service
   data:
     mongodb:
+      auto-index-creation: true
       uri: ${MONGODB_URI_ORDER}
     redis:
       host: ${REDIS_HOST:localhost}
@@ -34,4 +35,14 @@ services:
     url: ${AUTH_SERVICE_URL:http://localhost:8081}
   restaurant-service:
     url: ${RESTAURANT_SERVICE_URL:http://localhost:8082}
+
+razorpay:
+  key-id: ${RAZORPAY_KEY_ID:rzp_test_SZ9vgZQjij4g7j}
+  key-secret: ${RAZORPAY_KEY_SECRET:eU3taZ4ADVpI3HT3sfnjRfvf}
+  webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:smarteats_test_webhook_secret}
+
+payment:
+  pending-expiry-minutes: ${PAYMENT_PENDING_EXPIRY_MINUTES:15}
+  pending-expiry-check-ms: ${PAYMENT_PENDING_EXPIRY_CHECK_MS:60000}
+
 

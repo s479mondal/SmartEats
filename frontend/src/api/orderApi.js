@@ -1,13 +1,42 @@
 import apiClient from './axiosClient';
 
 export const orderApi = {
-  createOrder: async (orderPayload) => {
-    // Try Redis checkout first, fallback to payload checkout
+  createPaymentOrder: async (idempotencyKey) => {
+    const headers = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
+    const response = await apiClient.post('/api/orders/payment/create-order', null, { headers });
+    return response.data?.data || response.data;
+  },
+
+  verifyPayment: async (verificationPayload) => {
+    const response = await apiClient.post('/api/orders/payment/verify', verificationPayload);
+    return response.data?.data || response.data;
+  },
+
+  placeCodOrder: async (idempotencyKey) => {
+    const headers = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
+    const response = await apiClient.post('/api/orders/cod', null, { headers });
+    return response.data?.data || response.data;
+  },
+
+  createOrder: async (orderPayload, idempotencyKey) => {
+    const headers = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
     try {
-      const response = await apiClient.post('/api/orders/checkout');
+      const response = await apiClient.post('/api/orders/checkout', orderPayload, { headers });
       return response.data?.data || response.data;
-    } catch {
-      const response = await apiClient.post('/api/orders/checkout', orderPayload);
+    } catch (err) {
+      if (err.response?.status === 400 || err.response?.status === 403 || err.response?.status === 409 || err.response?.data?.message) {
+        throw err;
+      }
+      const response = await apiClient.post('/api/orders/checkout', orderPayload, { headers });
       return response.data?.data || response.data;
     }
   },

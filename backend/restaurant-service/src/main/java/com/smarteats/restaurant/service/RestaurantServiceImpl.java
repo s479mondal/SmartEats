@@ -3,10 +3,7 @@ package com.smarteats.restaurant.service;
 import com.smarteats.common.exception.BadRequestException;
 import com.smarteats.common.exception.ResourceNotFoundException;
 import com.smarteats.common.exception.UnauthorizedException;
-import com.smarteats.restaurant.dto.MenuItemRequest;
-import com.smarteats.restaurant.dto.MenuItemResponse;
-import com.smarteats.restaurant.dto.RestaurantRequest;
-import com.smarteats.restaurant.dto.RestaurantResponse;
+import com.smarteats.restaurant.dto.*;
 import com.smarteats.restaurant.entity.MenuItem;
 import com.smarteats.restaurant.entity.ProfileChangeRequest;
 import com.smarteats.restaurant.entity.Restaurant;
@@ -16,6 +13,7 @@ import com.smarteats.restaurant.repository.RestaurantRepository;
 import com.smarteats.common.geocoding.GeocodingResult;
 import com.smarteats.common.geocoding.GeocodingService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
@@ -24,6 +22,11 @@ import org.springframework.data.geo.GeoResult;
 import org.springframework.data.geo.GeoResults;
 import org.springframework.data.geo.Metrics;
 import org.springframework.data.geo.Point;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
 import com.smarteats.restaurant.util.RestaurantOperatingHoursUtil;
@@ -50,25 +53,39 @@ public class RestaurantServiceImpl implements RestaurantService {
     private final ProfileChangeRequestRepository profileChangeRequestRepository;
     private final GeocodingService geocodingService;
     private final Clock clock;
+    private final MongoTemplate mongoTemplate;
+    private final CacheManager cacheManager;
 
     @org.springframework.beans.factory.annotation.Autowired
     public RestaurantServiceImpl(RestaurantRepository restaurantRepository,
                                  MenuItemRepository menuItemRepository,
                                  ProfileChangeRequestRepository profileChangeRequestRepository,
                                  GeocodingService geocodingService,
-                                 @org.springframework.beans.factory.annotation.Autowired(required = false) Clock clock) {
+                                 @org.springframework.beans.factory.annotation.Autowired(required = false) Clock clock,
+                                 @org.springframework.beans.factory.annotation.Autowired(required = false) MongoTemplate mongoTemplate,
+                                 @org.springframework.beans.factory.annotation.Autowired(required = false) CacheManager cacheManager) {
         this.restaurantRepository = restaurantRepository;
         this.menuItemRepository = menuItemRepository;
         this.profileChangeRequestRepository = profileChangeRequestRepository;
         this.geocodingService = geocodingService;
         this.clock = clock != null ? clock : Clock.system(RestaurantOperatingHoursUtil.ZONE_ASIA_KOLKATA);
+        this.mongoTemplate = mongoTemplate;
+        this.cacheManager = cacheManager;
     }
 
     public RestaurantServiceImpl(RestaurantRepository restaurantRepository,
                                  MenuItemRepository menuItemRepository,
                                  ProfileChangeRequestRepository profileChangeRequestRepository,
                                  GeocodingService geocodingService) {
-        this(restaurantRepository, menuItemRepository, profileChangeRequestRepository, geocodingService, null);
+        this(restaurantRepository, menuItemRepository, profileChangeRequestRepository, geocodingService, null, null, null);
+    }
+
+    public RestaurantServiceImpl(RestaurantRepository restaurantRepository,
+                                 MenuItemRepository menuItemRepository,
+                                 ProfileChangeRequestRepository profileChangeRequestRepository,
+                                 GeocodingService geocodingService,
+                                 Clock clock) {
+        this(restaurantRepository, menuItemRepository, profileChangeRequestRepository, geocodingService, clock, null, null);
     }
 
     @Override
@@ -516,6 +533,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .price(request.getPrice())
                 .available(request.isAvailable())
                 .category(request.getCategory())
+                .availableQuantity(request.getAvailableQuantity())
                 .build();
 
         MenuItem saved = menuItemRepository.save(item);
@@ -552,6 +570,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         item.setPrice(request.getPrice());
         item.setAvailable(request.isAvailable());
         item.setCategory(request.getCategory());
+        item.setAvailableQuantity(request.getAvailableQuantity());
 
         MenuItem saved = menuItemRepository.save(item);
         return mapToMenuItemResponse(saved);
@@ -595,6 +614,254 @@ public class RestaurantServiceImpl implements RestaurantService {
         item.setAvailable(available);
         MenuItem saved = menuItemRepository.save(item);
         return mapToMenuItemResponse(saved);
+    }
+
+    // --- ATOMIC INVENTORY DEDUCTION & COMPENSATION ---
+
+    @Override
+    @CacheEvict(value = "menus", key = "#restaurantId")
+    public InventoryBatchReservationResponse reserveInventory(String restaurantId, InventoryBatchReservationRequest request) {
+        if (restaurantId == null || restaurantId.trim().isEmpty()) {
+            throw new BadRequestException("Restaurant ID cannot be empty");
+        }
+        if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
+            throw new BadRequestException("Inventory reservation request items cannot be empty");
+        }
+
+        log.info("Attempting batch inventory reservation for restaurant {} with {} items", restaurantId, request.getItems().size());
+
+        List<InventoryItemReservation> reservedSoFar = new ArrayList<>();
+        boolean allSuccessful = true;
+        String failedItemId = null;
+        String failureReason = null;
+
+        for (InventoryItemRequest itemReq : request.getItems()) {
+            String itemId = itemReq.getMenuItemId();
+            int qty = itemReq.getQuantity();
+
+            if (itemId == null || itemId.trim().isEmpty()) {
+                allSuccessful = false;
+                failedItemId = "UNKNOWN";
+                failureReason = "Menu item ID cannot be blank";
+                break;
+            }
+
+            if (qty <= 0) {
+                allSuccessful = false;
+                failedItemId = itemId;
+                failureReason = "Requested quantity must be at least 1";
+                break;
+            }
+
+            // Verify item exists and belongs to restaurant
+            MenuItem existing = menuItemRepository.findById(itemId).orElse(null);
+            if (existing == null || !restaurantId.equals(existing.getRestaurantId())) {
+                allSuccessful = false;
+                failedItemId = itemId;
+                failureReason = "Menu item " + itemId + " not found or does not belong to restaurant " + restaurantId;
+                break;
+            }
+
+            if (!existing.isAvailable()) {
+                allSuccessful = false;
+                failedItemId = itemId;
+                failureReason = "Menu item '" + existing.getName() + "' is marked unavailable";
+                break;
+            }
+
+            // Case A: availableQuantity == null (Legacy/unconfigured item)
+            // Preserve legacy behavior without generating fake inventory or decrementing
+            if (existing.getAvailableQuantity() == null) {
+                log.info("Menu item {} has unconfigured portion inventory (null). Allowing order without decrementing.", itemId);
+                reservedSoFar.add(InventoryItemReservation.builder()
+                        .menuItemId(itemId)
+                        .quantity(qty)
+                        .remainingQuantity(null)
+                        .tracked(false)
+                        .build());
+                continue;
+            }
+
+            // Case B: Configured inventory (availableQuantity != null)
+            // Execute ATOMIC conditional MongoDB update:
+            // Query: _id == itemId AND restaurantId == restaurantId AND available == true AND availableQuantity >= qty
+            // Update: $inc: { availableQuantity: -qty }
+            if (mongoTemplate != null) {
+                Query query = new Query();
+                query.addCriteria(Criteria.where("_id").is(itemId)
+                        .and("restaurantId").is(restaurantId)
+                        .and("available").is(true)
+                        .and("availableQuantity").gte(qty));
+
+                Update update = new Update().inc("availableQuantity", -qty);
+                FindAndModifyOptions options = FindAndModifyOptions.options().returnNew(true);
+
+                MenuItem updated = mongoTemplate.findAndModify(query, update, options, MenuItem.class);
+
+                if (updated != null) {
+                    log.info("Successfully atomically reserved {} portions for item {}. Remaining: {}",
+                            qty, itemId, updated.getAvailableQuantity());
+                    reservedSoFar.add(InventoryItemReservation.builder()
+                            .menuItemId(itemId)
+                            .quantity(qty)
+                            .remainingQuantity(updated.getAvailableQuantity())
+                            .tracked(true)
+                            .build());
+                } else {
+                    // Reservation failed: availableQuantity was less than requested quantity
+                    log.warn("Failed atomic reservation for item {}: requested {} portions but insufficient inventory.",
+                            itemId, qty);
+                    allSuccessful = false;
+                    failedItemId = itemId;
+                    failureReason = "Insufficient portions available for item '" + existing.getName() + "'";
+                    break;
+                }
+            } else {
+                // Fallback for tests without mongoTemplate bean
+                if (existing.getAvailableQuantity() >= qty) {
+                    existing.setAvailableQuantity(existing.getAvailableQuantity() - qty);
+                    menuItemRepository.save(existing);
+                    reservedSoFar.add(InventoryItemReservation.builder()
+                            .menuItemId(itemId)
+                            .quantity(qty)
+                            .remainingQuantity(existing.getAvailableQuantity())
+                            .tracked(true)
+                            .build());
+                } else {
+                    allSuccessful = false;
+                    failedItemId = itemId;
+                    failureReason = "Insufficient portions available for item '" + existing.getName() + "'";
+                    break;
+                }
+            }
+        }
+
+        // If any item failed, ROLLBACK / COMPENSATE all previously reserved items in this order!
+        if (!allSuccessful) {
+            log.warn("Rolling back {} previously reserved items for restaurant {} due to failure on item: {}",
+                    reservedSoFar.size(), restaurantId, failedItemId);
+
+            for (InventoryItemReservation reserved : reservedSoFar) {
+                if (reserved.isTracked()) {
+                    try {
+                        if (mongoTemplate != null) {
+                            Query rollbackQuery = new Query();
+                            rollbackQuery.addCriteria(Criteria.where("_id").is(reserved.getMenuItemId())
+                                    .and("restaurantId").is(restaurantId));
+                            Update rollbackUpdate = new Update().inc("availableQuantity", reserved.getQuantity());
+                            mongoTemplate.findAndModify(rollbackQuery, rollbackUpdate, MenuItem.class);
+                        } else {
+                            MenuItem mi = menuItemRepository.findById(reserved.getMenuItemId()).orElse(null);
+                            if (mi != null && mi.getAvailableQuantity() != null) {
+                                mi.setAvailableQuantity(mi.getAvailableQuantity() + reserved.getQuantity());
+                                menuItemRepository.save(mi);
+                            }
+                        }
+                        log.info("Compensated/restored {} portions for item {}", reserved.getQuantity(), reserved.getMenuItemId());
+                    } catch (Exception ex) {
+                        log.error("Error compensating reservation for item {}: {}", reserved.getMenuItemId(), ex.getMessage());
+                    }
+                }
+            }
+
+            evictMenuCache(restaurantId);
+
+            return InventoryBatchReservationResponse.builder()
+                    .success(false)
+                    .failedMenuItemId(failedItemId)
+                    .message(failureReason != null ? failureReason : "One or more items are no longer available in the requested quantity.")
+                    .reservedItems(Collections.emptyList())
+                    .build();
+        }
+
+        evictMenuCache(restaurantId);
+
+        return InventoryBatchReservationResponse.builder()
+                .success(true)
+                .failedMenuItemId(null)
+                .message("All items reserved successfully")
+                .reservedItems(reservedSoFar)
+                .build();
+    }
+
+    @Override
+    @CacheEvict(value = "menus", key = "#restaurantId")
+    public InventoryBatchReservationResponse releaseInventory(String restaurantId, InventoryBatchReservationRequest request) {
+        if (restaurantId == null || restaurantId.trim().isEmpty()) {
+            throw new BadRequestException("Restaurant ID cannot be empty");
+        }
+        if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
+            return InventoryBatchReservationResponse.builder()
+                    .success(true)
+                    .message("No items to release")
+                    .reservedItems(Collections.emptyList())
+                    .build();
+        }
+
+        log.info("Releasing/restoring inventory for restaurant {} with {} items", restaurantId, request.getItems().size());
+
+        List<InventoryItemReservation> restoredItems = new ArrayList<>();
+
+        for (InventoryItemRequest itemReq : request.getItems()) {
+            String itemId = itemReq.getMenuItemId();
+            int qty = itemReq.getQuantity();
+
+            if (itemId == null || qty <= 0) continue;
+
+            if (mongoTemplate != null) {
+                Query query = new Query();
+                query.addCriteria(Criteria.where("_id").is(itemId)
+                        .and("restaurantId").is(restaurantId)
+                        .and("availableQuantity").ne(null));
+
+                Update update = new Update().inc("availableQuantity", qty);
+                FindAndModifyOptions options = FindAndModifyOptions.options().returnNew(true);
+
+                MenuItem updated = mongoTemplate.findAndModify(query, update, options, MenuItem.class);
+                if (updated != null) {
+                    log.info("Restored {} portions for item {}. New total: {}", qty, itemId, updated.getAvailableQuantity());
+                    restoredItems.add(InventoryItemReservation.builder()
+                            .menuItemId(itemId)
+                            .quantity(qty)
+                            .remainingQuantity(updated.getAvailableQuantity())
+                            .tracked(true)
+                            .build());
+                }
+            } else {
+                MenuItem mi = menuItemRepository.findById(itemId).orElse(null);
+                if (mi != null && mi.getAvailableQuantity() != null) {
+                    mi.setAvailableQuantity(mi.getAvailableQuantity() + qty);
+                    menuItemRepository.save(mi);
+                    restoredItems.add(InventoryItemReservation.builder()
+                            .menuItemId(itemId)
+                            .quantity(qty)
+                            .remainingQuantity(mi.getAvailableQuantity())
+                            .tracked(true)
+                            .build());
+                }
+            }
+        }
+
+        evictMenuCache(restaurantId);
+
+        return InventoryBatchReservationResponse.builder()
+                .success(true)
+                .message("Inventory restored successfully")
+                .reservedItems(restoredItems)
+                .build();
+    }
+
+    private void evictMenuCache(String restaurantId) {
+        try {
+            if (cacheManager != null) {
+                org.springframework.cache.Cache cache = cacheManager.getCache("menus");
+                if (cache != null) {
+                    cache.evict(restaurantId);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not evict menu cache for restaurant {}: {}", restaurantId, e.getMessage());
+        }
     }
 
     private void validateOwnership(Restaurant restaurant, String ownerEmail) {
@@ -657,6 +924,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .price(m.getPrice())
                 .available(m.isAvailable())
                 .category(m.getCategory())
+                .availableQuantity(m.getAvailableQuantity())
                 .build();
     }
 

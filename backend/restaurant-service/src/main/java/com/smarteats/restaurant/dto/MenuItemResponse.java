@@ -21,4 +21,5 @@ public class MenuItemResponse implements Serializable {
     private double price;
     private boolean available;
     private String category;
+    private Integer availableQuantity;
 }

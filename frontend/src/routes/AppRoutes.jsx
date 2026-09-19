@@ -15,6 +15,7 @@ import DriverPortal from '../components/DriverPortal';
 import NgoDashboard from '../pages/ngo/NgoDashboard';
 import AdminDashboard from '../pages/admin/AdminDashboard';
 import { ProtectedRoute, RoleRoute } from './ProtectedRoute';
+import { validateAddToCart } from '../utils/inventoryUtils';
 
 // Generic placeholder for public subpages
 const ComingSoon = ({ title }) => (
@@ -58,20 +59,54 @@ export default function AppRoutes() {
     localStorage.setItem('smarteats_cart', JSON.stringify(cart));
   }, [cart]);
 
-  const addToCart = (item) => {
+  const addToCart = (item, qtyToAdd = 1) => {
+    if (!item) return false;
+
+    // Boundary & Availability validation
+    const validation = validateAddToCart(item, cart, qtyToAdd);
+    if (!validation.allowed) {
+      alert(validation.message || 'Cannot add item to cart.');
+      return false;
+    }
+
+    const id = item.id || item._id;
     setCart((prev) => {
-      const id = item.id || item._id;
       const existingIndex = prev.findIndex((i) => (i.id || i._id) === id);
       if (existingIndex > -1) {
         const updated = [...prev];
+        const currentQty = updated[existingIndex].qty || 1;
         updated[existingIndex] = {
           ...updated[existingIndex],
-          qty: (updated[existingIndex].qty || 1) + 1
+          ...item,
+          qty: currentQty + qtyToAdd
         };
         return updated;
       }
-      return [...prev, { ...item, qty: 1 }];
+      return [...prev, { ...item, qty: qtyToAdd }];
     });
+    return true;
+  };
+
+  const updateCartQty = (itemId, newQty, maxAvailableQty) => {
+    if (newQty <= 0) {
+      removeFromCart(itemId);
+      return true;
+    }
+
+    if (maxAvailableQty !== null && maxAvailableQty !== undefined && newQty > Number(maxAvailableQty)) {
+      alert('Only the currently available portions can be added.');
+      return false;
+    }
+
+    setCart((prev) =>
+      prev.map((i) => {
+        if ((i.id || i._id) === itemId) {
+          return { ...i, qty: newQty };
+        }
+        return i;
+      })
+    );
+    return true;
   };
 
   const removeFromCart = (itemId) => {
@@ -87,17 +122,17 @@ export default function AppRoutes() {
           <Route path="/" element={<Home />} />
           <Route path="/about" element={<ComingSoon title="About SmartEats" />} />
           <Route path="/contact" element={<ComingSoon title="Contact Desk" />} />
-          <Route path="/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
-          <Route path="/restaurants/:restaurantId" element={<RestaurantDetailPage cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
+          <Route path="/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} />} />
+          <Route path="/restaurants/:restaurantId" element={<RestaurantDetailPage cart={cart} setCart={setCart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} />} />
           <Route path="/food-rescue" element={<RescueOffersPage addToCart={addToCart} />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/application-pending" element={<ApplicationPending />} />
 
           {/* Customer Routes */}
-          <Route path="/customer/dashboard" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
-          <Route path="/customer/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
-          <Route path="/customer/restaurants/:restaurantId" element={<RestaurantDetailPage cart={cart} setCart={setCart} addToCart={addToCart} removeFromCart={removeFromCart} />} />
+          <Route path="/customer/dashboard" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} />} />
+          <Route path="/customer/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} />} />
+          <Route path="/customer/restaurants/:restaurantId" element={<RestaurantDetailPage cart={cart} setCart={setCart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} />} />
           <Route path="/customer/rescue" element={<RescueOffersPage addToCart={addToCart} />} />
           <Route path="/customer/preferences" element={<PreferencesPage />} />
 

@@ -267,7 +267,8 @@ export default function RestaurantRdssDashboard() {
       description: '',
       price: '',
       category: 'Main Course',
-      available: true
+      available: true,
+      availableQuantity: ''
     });
     setShowMenuModal(true);
   };
@@ -279,7 +280,8 @@ export default function RestaurantRdssDashboard() {
       description: item.description || '',
       price: item.price || '',
       category: item.category || 'Main Course',
-      available: item.available ?? true
+      available: item.available ?? true,
+      availableQuantity: (item.availableQuantity !== null && item.availableQuantity !== undefined) ? item.availableQuantity : ''
     });
     setShowMenuModal(true);
   };
@@ -287,10 +289,38 @@ export default function RestaurantRdssDashboard() {
   const handleMenuSubmit = async (e) => {
     e.preventDefault();
     setMenuMessage({ type: '', text: '' });
+
+    // Validate availableQuantity
+    let parsedQuantity = null;
+    if (menuForm.availableQuantity !== '' && menuForm.availableQuantity !== null && menuForm.availableQuantity !== undefined) {
+      const valStr = String(menuForm.availableQuantity).trim();
+      if (valStr !== '') {
+        const qtyNum = Number(valStr);
+        if (isNaN(qtyNum)) {
+          setMenuMessage({ type: 'error', text: 'Please enter a valid number for available portions.' });
+          return;
+        }
+        if (!Number.isInteger(qtyNum)) {
+          setMenuMessage({ type: 'error', text: 'Please enter a whole number of portions.' });
+          return;
+        }
+        if (qtyNum < 0) {
+          setMenuMessage({ type: 'error', text: 'Available portions cannot be negative.' });
+          return;
+        }
+        parsedQuantity = qtyNum;
+      }
+    }
+
     const payload = {
-      ...menuForm,
-      price: parseFloat(menuForm.price)
+      name: menuForm.name,
+      description: menuForm.description,
+      price: parseFloat(menuForm.price),
+      category: menuForm.category,
+      available: menuForm.available,
+      availableQuantity: parsedQuantity
     };
+
     try {
       if (editingMenuItem) {
         await restaurantOwnerApi.updateMenuItem(editingMenuItem.id, payload);
@@ -827,9 +857,30 @@ export default function RestaurantRdssDashboard() {
                       <h4 style={{ margin: 0, fontSize: '1.1rem' }}>{item.name}</h4>
                       <span style={{ fontWeight: 'bold', color: 'var(--accent-cyan)' }}>₹{item.price}</span>
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-sub)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', margin: '4px 0 8px 0' }}>
-                      {item.category}
-                    </span>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', margin: '4px 0 6px 0', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-sub)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px', display: 'inline-block' }}>
+                        {item.category}
+                      </span>
+
+                      {/* Portion Inventory Badge */}
+                      {item.availableQuantity === null || item.availableQuantity === undefined ? (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-sub)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          ⚪ Portions not configured
+                        </span>
+                      ) : item.availableQuantity === 0 ? (
+                        <span style={{ fontSize: '0.72rem', color: '#ef4444', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                          🔴 Sold Out (0 portions)
+                        </span>
+                      ) : item.availableQuantity === 1 ? (
+                        <span style={{ fontSize: '0.72rem', color: '#f59e0b', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                          ⚠️ 1 portion left
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.72rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                          🟢 {item.availableQuantity} portions available
+                        </span>
+                      )}
+                    </div>
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', minHeight: '40px' }}>{item.description}</p>
                   </div>
 
@@ -912,6 +963,24 @@ export default function RestaurantRdssDashboard() {
                         <option value="Biryani & Rice" style={{ background: '#1e293b' }}>Biryani & Rice</option>
                       </select>
                     </div>
+                  </div>
+
+                  <div style={{ marginBottom: '0.8rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '4px' }}>
+                      Available Portions
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="e.g. 20 (leave empty if unconfigured)"
+                      value={menuForm.availableQuantity}
+                      onChange={(e) => setMenuForm({ ...menuForm, availableQuantity: e.target.value })}
+                      style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-sub)', display: 'block', marginTop: '3px' }}>
+                      Number of sellable food portions currently prepared and ready for ordering.
+                    </span>
                   </div>
 
                   <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>

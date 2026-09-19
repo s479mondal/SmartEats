@@ -1,5 +1,6 @@
 package com.smarteats.order.entity;
 
+import com.smarteats.common.enums.PaymentStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,9 +31,22 @@ public class Order {
     private Double deliveryLatitude;
     private Double deliveryLongitude;
 
+    // Idempotency
+    @org.springframework.data.mongodb.core.index.Indexed(unique = true, sparse = true)
+    private String idempotencyKey;
+
+    // Razorpay / Payment Fields
+    private String razorpayOrderId;
+    private String razorpayPaymentId;
+    private String razorpaySignature;
+    private PaymentStatus paymentStatus;
+    private String paymentMethod;
+    private LocalDateTime paymentTime;
+
     @CreatedDate
     private LocalDateTime createdAt;
 
     @LastModifiedDate
     private LocalDateTime updatedAt;
 }
+

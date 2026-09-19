@@ -54,6 +54,9 @@ public class OrderCoordinateTransitionTest {
     @Mock
     private RestaurantServiceClient restaurantServiceClient;
 
+    @Mock
+    private com.smarteats.order.client.RazorpayClientWrapper razorpayClientWrapper;
+
     @Captor
     private ArgumentCaptor<OrderAcceptedEvent> eventCaptor;
 
@@ -76,12 +79,14 @@ public class OrderCoordinateTransitionTest {
                 redisTemplate,
                 kafkaTemplate,
                 authServiceClient,
-                restaurantServiceClient
+                restaurantServiceClient,
+                razorpayClientWrapper
         );
         ReflectionTestUtils.setField(orderService, "orderCreatedTopic", "smarteats.order.created");
         ReflectionTestUtils.setField(orderService, "orderAcceptedTopic", "smarteats.order.accepted");
         ReflectionTestUtils.setField(orderService, "orderStatusTopic", "smarteats.order.status");
         lenient().when(restaurantServiceClient.isRestaurantOpen(anyString())).thenReturn(true);
+        lenient().when(restaurantServiceClient.reserveInventory(any(), any())).thenReturn(true);
     }
 
     @Test

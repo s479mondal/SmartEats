@@ -1,5 +1,6 @@
 package com.smarteats.order.dto;
 
+import com.smarteats.common.enums.PaymentStatus;
 import com.smarteats.order.entity.CartItem;
 import com.smarteats.order.entity.OrderStatus;
 import lombok.AllArgsConstructor;
@@ -23,5 +24,10 @@ public class OrderResponse {
     private OrderStatus status;
     private Double deliveryLatitude;
     private Double deliveryLongitude;
+    private PaymentStatus paymentStatus;
+    private String razorpayOrderId;
+    private String paymentMethod;
+    private String idempotencyKey;
     private LocalDateTime createdAt;
 }
+

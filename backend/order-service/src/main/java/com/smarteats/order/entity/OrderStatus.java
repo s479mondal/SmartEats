@@ -1,6 +1,7 @@
 package com.smarteats.order.entity;
 
 public enum OrderStatus {
+    PENDING_PAYMENT,
     NEW,
     CREATED,
     ACCEPTED,

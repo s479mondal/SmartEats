@@ -6,10 +6,15 @@ import com.smarteats.common.exception.UnauthorizedException;
 import com.smarteats.order.dto.CartDto;
 import com.smarteats.order.dto.CartItemRequest;
 import com.smarteats.order.dto.OrderResponse;
+import com.smarteats.order.dto.PaymentOrderResponse;
+import com.smarteats.order.dto.PaymentVerifyRequest;
+import com.smarteats.order.dto.PaymentVerifyResponse;
+import com.smarteats.order.dto.WebhookResponse;
 import com.smarteats.order.service.OrderService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -61,12 +66,52 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(null, "Cart cleared successfully"));
     }
 
-    @PostMapping("/checkout")
-    public ResponseEntity<ApiResponse<OrderResponse>> checkout(@RequestHeader("X-User-Email") String email) {
-        log.info("User {} initiating order checkout", email);
-        OrderResponse order = orderService.placeOrder(email);
+    @PostMapping("/cod")
+    public ResponseEntity<ApiResponse<OrderResponse>> placeCodOrder(
+            @RequestHeader("X-User-Email") String email,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        log.info("User {} initiating Cash on Delivery (COD) order placement (idempotencyKey: {})", email, idempotencyKey);
+        OrderResponse order = orderService.placeCodOrder(email, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(order, "Order placed successfully"));
+    }
+
+    @PostMapping("/checkout")
+    public ResponseEntity<ApiResponse<OrderResponse>> checkout(
+            @RequestHeader("X-User-Email") String email,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        log.info("User {} initiating order checkout (idempotencyKey: {})", email, idempotencyKey);
+        OrderResponse order = orderService.placeOrder(email, idempotencyKey);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(order, "Order placed successfully"));
+    }
+
+    @PostMapping("/payment/create-order")
+    public ResponseEntity<ApiResponse<PaymentOrderResponse>> createPaymentOrder(
+            @RequestHeader("X-User-Email") String email,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        log.info("User {} initiating Razorpay payment order creation (idempotencyKey: {})", email, idempotencyKey);
+        PaymentOrderResponse response = orderService.createPaymentOrder(email, idempotencyKey);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(response, "Payment order created successfully"));
+    }
+
+    @PostMapping("/payment/verify")
+    public ResponseEntity<ApiResponse<PaymentVerifyResponse>> verifyPayment(
+            @Valid @RequestBody PaymentVerifyRequest request,
+            @RequestHeader("X-User-Email") String email) {
+        log.info("User {} initiating payment verification for order ID {}", email, request.getOrderId());
+        PaymentVerifyResponse response = orderService.verifyPayment(email, request);
+        return ResponseEntity.ok(ApiResponse.success(response, "Payment verified successfully"));
+    }
+
+    @PostMapping(value = "/payment/webhook", consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.ALL_VALUE})
+    public ResponseEntity<ApiResponse<WebhookResponse>> handleWebhook(
+            @RequestBody String rawPayload,
+            @RequestHeader(value = "X-Razorpay-Signature", required = false) String signature) {
+        log.info("Received Razorpay webhook request (signature present: {})", signature != null && !signature.isBlank());
+        WebhookResponse response = orderService.processWebhook(rawPayload, signature);
+        return ResponseEntity.ok(ApiResponse.success(response, "Webhook processed successfully"));
     }
 
     @GetMapping("/{id}")

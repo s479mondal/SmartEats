@@ -119,6 +119,8 @@ def main():
                 "-Dspring.data.redis.host=localhost",
                 "-Dspring.kafka.bootstrap-servers=localhost:9092",
                 f"-Dspring.data.mongodb.uri={os.environ.get('MONGODB_URI_ORDER')}",
+                f"-Drazorpay.key-id={os.environ.get('RAZORPAY_KEY_ID', 'rzp_test_SZ9vgZQjij4g7j')}",
+                f"-Drazorpay.key-secret={os.environ.get('RAZORPAY_KEY_SECRET', 'eU3taZ4ADVpI3HT3sfnjRfvf')}",
                 "-jar", "order-service/target/order-service-0.0.1-SNAPSHOT.jar"
             ],
             "cwd": BACKEND_DIR,

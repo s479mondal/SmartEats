@@ -4,8 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import { rescueApi, orderApi } from '../api/orderApi';
 import { restaurantApi } from '../api/restaurantApi';
 import RestaurantCard from './restaurant/RestaurantCard';
+import { getCustomerAvailabilityStatus, checkCartItemInventory } from '../utils/inventoryUtils';
+import { initiateRazorpayCheckout } from '../utils/razorpayUtils';
 
-export default function CustomerPortal({ cart = [], setCart, addToCart, removeFromCart }) {
+export default function CustomerPortal({ cart = [], setCart, addToCart, updateCartQty, removeFromCart }) {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('ALL');
@@ -14,6 +16,9 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, removeFr
   const [activeOrder, setActiveOrder] = useState(null);
   const [customerOrders, setCustomerOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [checkoutStatusMsg, setCheckoutStatusMsg] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('RAZORPAY'); // 'RAZORPAY' | 'COD'
 
   // Discovery Mode State
   const [discoveryMode, setDiscoveryMode] = useState('NEARBY'); // 'NEARBY' | 'ALL'
@@ -112,24 +117,99 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, removeFr
     return matchesSearch && matchesCategory;
   });
 
+  // Map for O(1) inventory lookup
+  const menuItemsMap = React.useMemo(() => {
+    return new Map((menuItems || []).map((m) => [m.id || m._id, m]));
+  }, [menuItems]);
+
+  // Check if cart has stale inventory overloads
+  const hasStaleCartIssues = React.useMemo(() => {
+    if (!cart || cart.length === 0) return false;
+    return cart.some((cartItem) => {
+      const menuItem = menuItemsMap.get(cartItem.id || cartItem._id) || cartItem;
+      const check = checkCartItemInventory(cartItem, menuItem);
+      return check.isOverload || check.isSoldOut;
+    });
+  }, [cart, menuItemsMap]);
+
   const cartTotal = (cart || []).reduce((sum, i) => sum + (i.price * (i.qty || 1)), 0);
 
   const handleCheckout = async () => {
-    if (!cart || cart.length === 0) return;
-    try {
-      const orderRes = await orderApi.createOrder({
-        customerEmail: user?.email || 'customer@smarteats.com',
-        items: cart,
-        totalAmount: cartTotal
-      });
-      const newOrder = orderRes.data || orderRes || { id: 'ORD-1024', status: 'PREPARING', etaMinutes: 28 };
-      alert(`Order Placed Successfully! ✅\n\nOrder ID: ${newOrder.id || 'ORD-1024'}`);
-      setActiveOrder(newOrder);
-      setCustomerOrders(prev => [newOrder, ...prev]);
-      if (setCart) setCart([]);
-    } catch (err) {
-      alert('Checkout error: ' + (err.response?.data?.message || err.message));
+    if (!cart || cart.length === 0 || hasStaleCartIssues || isCheckingOut) return;
+
+    // Generate cryptographically unique idempotency key for this checkout attempt
+    const checkoutKey = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+      ? crypto.randomUUID() 
+      : `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    if (paymentMethod === 'COD') {
+      setIsCheckingOut(true);
+      setCheckoutStatusMsg('Placing Cash on Delivery Order...');
+      try {
+        const orderResponse = await orderApi.placeCodOrder(checkoutKey);
+        const confirmedOrder = {
+          id: orderResponse.id,
+          status: orderResponse.status || 'CREATED',
+          paymentStatus: orderResponse.paymentStatus || 'PENDING',
+          paymentMethod: 'COD',
+          totalAmount: orderResponse.totalAmount || cartTotal,
+          items: cart,
+          etaMinutes: 28,
+          createdAt: orderResponse.createdAt || new Date().toISOString()
+        };
+        alert(`Order Placed Successfully! 🎉\n\nOrder ID: ${orderResponse.id}\nPayment Method: Cash on Delivery\nPayment Status: Pending\nOrder Status: Confirmed (CREATED)`);
+        setActiveOrder(confirmedOrder);
+        setCustomerOrders(prev => [confirmedOrder, ...prev]);
+        if (typeof clearCart === 'function') {
+          clearCart();
+        } else if (setCart) {
+          setCart([]);
+        }
+      } catch (err) {
+        const msg = err.response?.data?.message || err.message || 'Failed to place Cash on Delivery order.';
+        alert(msg);
+      } finally {
+        setIsCheckingOut(false);
+        setCheckoutStatusMsg('');
+      }
+      return;
     }
+
+    // Razorpay Online Flow
+    await initiateRazorpayCheckout({
+      user,
+      idempotencyKey: checkoutKey,
+      onLoadingChange: (loading, msg) => {
+        setIsCheckingOut(loading);
+        setCheckoutStatusMsg(msg || '');
+      },
+      onSuccess: (paymentResult) => {
+        const confirmedOrder = {
+          id: paymentResult.orderId,
+          status: paymentResult.orderStatus || 'CREATED',
+          paymentStatus: paymentResult.paymentStatus || 'PAID',
+          paymentMethod: 'RAZORPAY',
+          totalAmount: paymentResult.amount,
+          items: cart,
+          etaMinutes: 28,
+          createdAt: new Date().toISOString()
+        };
+        alert(`Order Confirmed & Paid Successfully! 🎉\n\nOrder ID: ${paymentResult.orderId}\nPayment Status: PAID\nOrder Status: CREATED`);
+        setActiveOrder(confirmedOrder);
+        setCustomerOrders(prev => [confirmedOrder, ...prev]);
+        if (typeof clearCart === 'function') {
+          clearCart();
+        } else if (setCart) {
+          setCart([]);
+        }
+      },
+      onFailure: (errorMsg) => {
+        alert(errorMsg);
+      },
+      onDismiss: (dismissMsg) => {
+        alert(dismissMsg);
+      }
+    });
   };
 
   return (
@@ -455,17 +535,58 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, removeFr
             <div style={{ color: 'var(--text-sub)', textAlign: 'center', padding: '2rem 0' }}>Loading fresh dishes...</div>
           ) : (
             <div className="grid-3">
-              {filteredItems.map(item => (
-                <div key={item.id || item._id} className="card">
-                  {item.img && <img src={item.img} className="food-img" alt={item.name} />}
-                  <div className="food-header">
-                    <div className="food-title">{item.name}</div>
-                    <div className="price-tag">₹{item.price}</div>
+              {filteredItems.map((item) => {
+                const itemId = item.id || item._id;
+                const status = getCustomerAvailabilityStatus(item);
+                const isAvailable = status.isOrderable;
+                const currentCartItem = (cart || []).find((i) => (i.id || i._id) === itemId);
+                const inCartQty = currentCartItem ? (currentCartItem.qty || 1) : 0;
+                const isMaxInCart = item.availableQuantity !== null && item.availableQuantity !== undefined && inCartQty >= Number(item.availableQuantity);
+
+                return (
+                  <div key={itemId} className="card" style={{ display: 'flex', flexDirection: 'column', opacity: isAvailable ? 1 : 0.65 }}>
+                    {item.img && <img src={item.img} className="food-img" alt={item.name} />}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem', gap: '6px' }}>
+                      <span
+                        style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          color: status.badgeColor,
+                          background: status.bgColor,
+                          border: `1px solid ${status.borderColor}`,
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        {status.icon} {status.label}
+                      </span>
+                    </div>
+
+                    <div className="food-header">
+                      <div className="food-title">{item.name}</div>
+                      <div className="price-tag">₹{item.price}</div>
+                    </div>
+                    <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', marginBottom: '0.8rem', flexGrow: 1 }}>
+                      {item.description || item.desc}
+                    </p>
+                    <button
+                      className="btn-action"
+                      disabled={!isAvailable || isMaxInCart}
+                      onClick={() => addToCart(item)}
+                      style={{
+                        background: !isAvailable ? 'rgba(255, 255, 255, 0.1)' : (isMaxInCart ? 'rgba(245, 158, 11, 0.2)' : 'var(--primary-gradient)'),
+                        color: isMaxInCart ? '#fbbf24' : '#fff',
+                        cursor: (isAvailable && !isMaxInCart) ? 'pointer' : 'not-allowed'
+                      }}
+                    >
+                      {!isAvailable ? 'Sold Out' : (isMaxInCart ? 'Max in Cart' : 'Add to Cart')}
+                    </button>
                   </div>
-                  <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', marginBottom: '0.8rem' }}>{item.description || item.desc}</p>
-                  <button className="btn-action" onClick={() => addToCart(item)}>Add to Cart</button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -473,7 +594,7 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, removeFr
         {/* Sidebar: Cart & Preferences */}
         <div>
           {/* Cart Card */}
-          <div className="card" style={{ marginBottom: '1.5rem', borderColor: 'rgba(255, 94, 58, 0.3)' }}>
+          <div className="card" style={{ marginBottom: '1.5rem', borderColor: hasStaleCartIssues ? '#f59e0b' : 'rgba(255, 94, 58, 0.3)' }}>
             <h3 style={{ fontFamily: 'var(--font-heading)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>🛒 Shopping Cart</span>
               <span style={{ fontSize: '0.8rem', background: 'var(--primary)', color: '#fff', padding: '2px 10px', borderRadius: '20px' }}>
@@ -481,24 +602,132 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, removeFr
               </span>
             </h3>
 
-            <div style={{ minHeight: '80px', maxHeight: '200px', overflowY: 'auto', marginBottom: '1rem' }}>
+            {/* Stale Overload Warning Banner */}
+            {hasStaleCartIssues && (
+              <div
+                style={{
+                  background: 'rgba(245, 158, 11, 0.12)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                  borderRadius: '10px',
+                  padding: '0.6rem 0.8rem',
+                  color: '#fbbf24',
+                  fontSize: '0.8rem',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '6px'
+                }}
+              >
+                <span>⚠️</span>
+                <div>
+                  Some items in your cart exceed available portions. Please reduce quantities to proceed.
+                </div>
+              </div>
+            )}
+
+            <div style={{ minHeight: '80px', maxHeight: '240px', overflowY: 'auto', marginBottom: '1rem' }}>
               {(!cart || cart.length === 0) ? (
                 <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' }}>
                   Your cart is empty. Add delicious items to get started!
                 </p>
               ) : (
-                cart.map(item => (
-                  <div key={item.id || item._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem' }}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{item.name}</div>
-                      <div style={{ color: 'var(--text-sub)' }}>₹{item.price} x {item.qty || 1}</div>
+                cart.map((item) => {
+                  const itemId = item.id || item._id;
+                  const menuItem = menuItemsMap.get(itemId) || item;
+                  const itemCheck = checkCartItemInventory(item, menuItem);
+                  const availQty = menuItem.availableQuantity;
+                  const isAvailable = menuItem.available !== false;
+                  const isSoldOut = !isAvailable || (availQty !== null && availQty !== undefined && Number(availQty) <= 0);
+                  const isAtMax = availQty !== null && availQty !== undefined && (item.qty || 1) >= Number(availQty);
+                  const isPlusDisabled = isAtMax || isSoldOut;
+
+                  return (
+                    <div key={itemId} style={{ padding: '0.6rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ maxWidth: '45%' }}>
+                          <div style={{ fontWeight: 700 }}>{item.name}</div>
+                          <div style={{ color: 'var(--text-sub)', fontSize: '0.78rem' }}>₹{item.price} each</div>
+                        </div>
+
+                        {/* Stepper Controls */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <button
+                            onClick={() => {
+                              if (updateCartQty) {
+                                updateCartQty(itemId, (item.qty || 1) - 1, availQty);
+                              } else if (removeFromCart && (item.qty || 1) <= 1) {
+                                removeFromCart(itemId);
+                              }
+                            }}
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.1)',
+                              border: '1px solid rgba(255, 255, 255, 0.2)',
+                              color: '#fff',
+                              borderRadius: '6px',
+                              width: '22px',
+                              height: '22px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              fontWeight: 800,
+                              fontSize: '0.85rem'
+                            }}
+                          >
+                            −
+                          </button>
+
+                          <span style={{ fontWeight: 700, minWidth: '18px', textAlign: 'center' }}>
+                            {item.qty || 1}
+                          </span>
+
+                          <button
+                            disabled={isPlusDisabled}
+                            onClick={() => {
+                              if (updateCartQty) {
+                                updateCartQty(itemId, (item.qty || 1) + 1, availQty);
+                              }
+                            }}
+                            style={{
+                              background: isPlusDisabled ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.1)',
+                              border: '1px solid rgba(255, 255, 255, 0.2)',
+                              color: isPlusDisabled ? 'rgba(255, 255, 255, 0.25)' : '#fff',
+                              borderRadius: '6px',
+                              width: '22px',
+                              height: '22px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: isPlusDisabled ? 'not-allowed' : 'pointer',
+                              fontWeight: 800,
+                              fontSize: '0.85rem'
+                            }}
+                          >
+                            +
+                          </button>
+
+                          <span style={{ fontWeight: 700, color: 'var(--accent-cyan)', marginLeft: '4px', minWidth: '40px', textAlign: 'right' }}>
+                            ₹{item.price * (item.qty || 1)}
+                          </span>
+
+                          <button
+                            onClick={() => removeFromCart && removeFromCart(itemId)}
+                            style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer', marginLeft: '4px' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Stale Overload Alert */}
+                      {(itemCheck.isOverload || itemCheck.isSoldOut) && (
+                        <div style={{ marginTop: '4px', color: itemCheck.isSoldOut ? '#f87171' : '#fbbf24', fontSize: '0.74rem' }}>
+                          ⚠️ {itemCheck.warning}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--accent-cyan)' }}>₹{item.price * (item.qty || 1)}</span>
-                      <button onClick={() => removeFromCart && removeFromCart(item.id || item._id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer' }}>✕</button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -507,8 +736,52 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, removeFr
               <span style={{ color: 'var(--accent-cyan)', fontSize: '1.1rem' }}>₹{cartTotal}</span>
             </div>
 
-            <button className="btn-action" disabled={!cart || cart.length === 0} onClick={handleCheckout}>
-              Proceed to Payment & Checkout
+            {/* Payment Method Selector */}
+            <div style={{ marginTop: '0.8rem', marginBottom: '0.8rem', padding: '0.75rem', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '0.5rem' }}>
+                Select Payment Method:
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', color: '#fff' }}>
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value="RAZORPAY"
+                    checked={paymentMethod === 'RAZORPAY'}
+                    onChange={() => setPaymentMethod('RAZORPAY')}
+                    style={{ accentColor: 'var(--accent-cyan)' }}
+                  />
+                  <span>💳 Online Payment (Razorpay)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', color: '#fff' }}>
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value="COD"
+                    checked={paymentMethod === 'COD'}
+                    onChange={() => setPaymentMethod('COD')}
+                    style={{ accentColor: 'var(--accent-cyan)' }}
+                  />
+                  <span>💵 Cash on Delivery (COD)</span>
+                </label>
+              </div>
+            </div>
+
+            <button
+              className="btn-action"
+              disabled={!cart || cart.length === 0 || hasStaleCartIssues || isCheckingOut}
+              onClick={handleCheckout}
+              style={{
+                background: (hasStaleCartIssues || isCheckingOut) ? '#64748b' : 'var(--primary-gradient)',
+                cursor: (!cart || cart.length === 0 || hasStaleCartIssues || isCheckingOut) ? 'not-allowed' : 'pointer',
+                opacity: isCheckingOut ? 0.75 : 1
+              }}
+            >
+              {isCheckingOut
+                ? (checkoutStatusMsg || 'Processing Order...')
+                : (hasStaleCartIssues 
+                    ? 'Adjust Quantities to Checkout' 
+                    : (paymentMethod === 'COD' ? 'Confirm Order (Cash on Delivery)' : 'Proceed to Payment & Checkout'))}
             </button>
           </div>
 

@@ -139,4 +139,64 @@ public class RestaurantServiceClient {
             throw new BadRequestException("Could not verify restaurant operating status: " + e.getMessage());
         }
     }
+
+    public boolean reserveInventory(String restaurantId, java.util.List<com.smarteats.order.dto.InventoryItemRequest> items) {
+        if (restaurantId == null || restaurantId.trim().isEmpty() || items == null || items.isEmpty()) {
+            return true;
+        }
+
+        try {
+            String url = restaurantServiceUrl + "/api/restaurants/" + restaurantId.trim() + "/inventory/reserve";
+            log.info("Sending batch inventory reservation request to Restaurant Service: {} (items count: {})", url, items.size());
+
+            java.util.Map<String, Object> requestPayload = java.util.Map.of("items", items);
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(requestPayload, headers);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(URI.create(url), entity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                JsonNode root = objectMapper.readTree(response.getBody());
+                boolean success = root.has("success") && root.get("success").asBoolean();
+                if (!success) {
+                    String msg = root.has("message") ? root.get("message").asText() : "Inventory reservation failed";
+                    log.warn("Inventory reservation rejected for restaurant {}: {}", restaurantId, msg);
+                    return false;
+                }
+                return true;
+            }
+            return false;
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            log.warn("Restaurant Service rejected inventory reservation for {}: status={}, body={}",
+                    restaurantId, e.getStatusCode(), e.getResponseBodyAsString());
+            return false;
+        } catch (Exception e) {
+            log.error("Error communicating with Restaurant Service for inventory reservation {}: {}",
+                    restaurantId, e.getMessage(), e);
+            return false;
+        }
+    }
+
+    public boolean releaseInventory(String restaurantId, java.util.List<com.smarteats.order.dto.InventoryItemRequest> items) {
+        if (restaurantId == null || restaurantId.trim().isEmpty() || items == null || items.isEmpty()) {
+            return true;
+        }
+
+        try {
+            String url = restaurantServiceUrl + "/api/restaurants/" + restaurantId.trim() + "/inventory/release";
+            log.info("Sending batch inventory release request to Restaurant Service: {} (items count: {})", url, items.size());
+
+            java.util.Map<String, Object> requestPayload = java.util.Map.of("items", items);
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(requestPayload, headers);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(URI.create(url), entity, String.class);
+            return response.getStatusCode().is2xxSuccessful();
+        } catch (Exception e) {
+            log.error("Error releasing inventory on Restaurant Service for restaurant {}: {}", restaurantId, e.getMessage(), e);
+            return false;
+        }
+    }
 }

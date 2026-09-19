@@ -284,6 +284,34 @@ public class RestaurantController {
         return ResponseEntity.ok(ApiResponse.success(rejected, "Profile change request rejected"));
     }
 
+    // --- INVENTORY MANAGEMENT ENDPOINTS (Internal & Order-Service Integration) ---
+
+    @PostMapping("/{restaurantId}/inventory/reserve")
+    public ResponseEntity<ApiResponse<com.smarteats.restaurant.dto.InventoryBatchReservationResponse>> reserveInventory(
+            @PathVariable String restaurantId,
+            @Valid @RequestBody com.smarteats.restaurant.dto.InventoryBatchReservationRequest request) {
+        log.info("Request to reserve inventory for restaurant: {}", restaurantId);
+        com.smarteats.restaurant.dto.InventoryBatchReservationResponse response = restaurantService.reserveInventory(restaurantId, request);
+        if (!response.isSuccess()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(ApiResponse.<com.smarteats.restaurant.dto.InventoryBatchReservationResponse>builder()
+                            .success(false)
+                            .message(response.getMessage())
+                            .data(response)
+                            .build());
+        }
+        return ResponseEntity.ok(ApiResponse.success(response, response.getMessage()));
+    }
+
+    @PostMapping("/{restaurantId}/inventory/release")
+    public ResponseEntity<ApiResponse<com.smarteats.restaurant.dto.InventoryBatchReservationResponse>> releaseInventory(
+            @PathVariable String restaurantId,
+            @Valid @RequestBody com.smarteats.restaurant.dto.InventoryBatchReservationRequest request) {
+        log.info("Request to release/restore inventory for restaurant: {}", restaurantId);
+        com.smarteats.restaurant.dto.InventoryBatchReservationResponse response = restaurantService.releaseInventory(restaurantId, request);
+        return ResponseEntity.ok(ApiResponse.success(response, response.getMessage()));
+    }
+
     // Role verification helper
     private void checkRole(String rolesHeader, String requiredRole) {
         if (rolesHeader == null || (!rolesHeader.contains(requiredRole) && !rolesHeader.contains("ADMIN"))) {

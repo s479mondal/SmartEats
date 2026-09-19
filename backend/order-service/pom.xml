@@ -48,6 +48,12 @@
             <groupId>com.smarteats</groupId>
             <artifactId>common-library</artifactId>
         </dependency>
+        <!-- Razorpay Java SDK -->
+        <dependency>
+            <groupId>com.razorpay</groupId>
+            <artifactId>razorpay-java</artifactId>
+            <version>1.4.3</version>
+        </dependency>
     </dependencies>
 
     <build>

@@ -1,6 +1,7 @@
 package com.smarteats.restaurant.dto;
 
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -26,4 +27,7 @@ public class MenuItemRequest {
 
     @NotBlank(message = "Category is required")
     private String category;
+
+    @Min(value = 0, message = "Available portions cannot be negative")
+    private Integer availableQuantity;
 }
