@@ -20,6 +20,14 @@ public class DeliveryPartnerRegisterRequest {
     @Email(message = "Email must be valid")
     private String email;
 
+    private String baseAddress;
+    private String city;
+    private String state;
+    private String pincode;
+    private Double baseLatitude;
+    private Double baseLongitude;
+
+    // Backward-compatibility coordinate aliases
     private double latitude;
     private double longitude;
 }

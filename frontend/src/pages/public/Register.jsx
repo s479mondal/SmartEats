@@ -61,10 +61,19 @@ export default function Register() {
   const [foodLicenseNumber, setFoodLicenseNumber] = useState('');
   const [verificationDocumentUrl, setVerificationDocumentUrl] = useState('');
 
-  // Delivery Partner Specific Fields
+  // Delivery Partner Specific Fields & Base Location
   const [vehicleType, setVehicleType] = useState('BIKE');
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [verificationInfo, setVerificationInfo] = useState('');
+  const [driverBaseAddress, setDriverBaseAddress] = useState('');
+  const [driverCity, setDriverCity] = useState('');
+  const [driverPincode, setDriverPincode] = useState('');
+  const [driverDistrict, setDriverDistrict] = useState('');
+  const [driverState, setDriverState] = useState('');
+  const [confirmedDriverLocation, setConfirmedDriverLocation] = useState(null);
+  const [driverPinLoading, setDriverPinLoading] = useState(false);
+  const [driverPinStatus, setDriverPinStatus] = useState(null);
+  const driverPinAbortRef = useRef(null);
 
   // NGO Specific Fields
   const [ngoName, setNgoName] = useState('');
@@ -384,6 +393,90 @@ export default function Register() {
     }
   };
 
+  const handleDriverPincodeChange = async (e) => {
+    const rawVal = e.target.value;
+    const numericVal = rawVal.replace(/\D/g, '').slice(0, 6);
+    setDriverPincode(numericVal);
+
+    if (driverPinAbortRef.current) {
+      driverPinAbortRef.current.abort();
+    }
+
+    if (numericVal.length < 6) {
+      setDriverPinStatus(null);
+      setDriverPinLoading(false);
+      return;
+    }
+
+    setDriverPinLoading(true);
+    setDriverPinStatus(null);
+
+    const controller = new AbortController();
+    driverPinAbortRef.current = controller;
+
+    try {
+      const result = await authApi.lookupPincode(numericVal, controller.signal);
+      if (result && result.success) {
+        if (result.city && !driverCity) {
+          setDriverCity(result.city);
+        }
+        if (result.district) {
+          setDriverDistrict(result.district);
+        }
+        if (result.state) {
+          setDriverState(result.state);
+        }
+
+        const poNames = Array.isArray(result.postOffices) && result.postOffices.length > 0 
+          ? result.postOffices.slice(0, 3).join(', ') + (result.postOffices.length > 3 ? ` +${result.postOffices.length - 3} more` : '')
+          : '';
+
+        setDriverPinStatus({
+          type: 'success',
+          message: `Location identified for PIN ${numericVal}${result.district ? ` (${result.district}, ${result.state})` : ''}`,
+          postOffices: poNames
+        });
+      } else {
+        setDriverPinStatus({
+          type: 'warning',
+          message: result?.message || 'No location found for this PIN code.'
+        });
+      }
+    } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        return;
+      }
+      console.warn('Driver PIN lookup issue:', err);
+      setDriverPinStatus({
+        type: 'error',
+        message: 'Unable to verify PIN right now. You can enter the location manually.'
+      });
+    } finally {
+      setDriverPinLoading(false);
+    }
+  };
+
+  const handleDriverLocationConfirm = (confirmedData) => {
+    console.log('Driver base location confirmed on map:', confirmedData);
+    setConfirmedDriverLocation(confirmedData);
+
+    if (confirmedData.city && !driverCity) {
+      setDriverCity(confirmedData.city);
+    }
+    if (confirmedData.pincode && !driverPincode) {
+      setDriverPincode(confirmedData.pincode);
+    }
+    if (confirmedData.district && !driverDistrict) {
+      setDriverDistrict(confirmedData.district);
+    }
+    if (confirmedData.state && !driverState) {
+      setDriverState(confirmedData.state);
+    }
+    if (confirmedData.address && !driverBaseAddress) {
+      setDriverBaseAddress(confirmedData.address);
+    }
+  };
+
   const handlePreferenceToggle = (pref) => {
     if (foodPreferences.includes(pref)) {
       setFoodPreferences(foodPreferences.filter(p => p !== pref));
@@ -438,6 +531,14 @@ export default function Register() {
       }
     }
 
+    // Delivery Partner Base Location Verification Guard
+    if (selectedRole === 'DELIVERY_PARTNER') {
+      if (!confirmedDriverLocation || !confirmedDriverLocation.latitude || !confirmedDriverLocation.longitude) {
+        setError('Please pinpoint and click "Confirm Location" on the base / service location map before completing registration.');
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
@@ -468,12 +569,12 @@ export default function Register() {
         email,
         phone,
         password,
-        address: selectedRole === 'CUSTOMER' ? customerFullAddress : (selectedRole === 'RESTAURANT' ? restaurantAddress || address : (selectedRole === 'NGO' ? ngoAddress || address : address)),
-        location: selectedRole === 'CUSTOMER' ? customerLocationReference : (selectedRole === 'RESTAURANT' ? (confirmedRestaurantLocation?.address || `${city}, ${pincode}` || location) : (selectedRole === 'NGO' ? (confirmedNgoLocation?.address || `${ngoCity}, ${ngoPincode}` || location) : location)),
-        city: selectedRole === 'CUSTOMER' ? customerCity || null : (selectedRole === 'RESTAURANT' ? city : (selectedRole === 'NGO' ? ngoCity || null : null)),
-        pincode: selectedRole === 'CUSTOMER' ? customerPincode || null : (selectedRole === 'RESTAURANT' ? pincode : (selectedRole === 'NGO' ? ngoPincode || null : null)),
-        latitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.latitude : (selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.latitude : (selectedRole === 'NGO' ? confirmedNgoLocation.latitude : null)),
-        longitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.longitude : (selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.longitude : (selectedRole === 'NGO' ? confirmedNgoLocation.longitude : null)),
+        address: selectedRole === 'CUSTOMER' ? customerFullAddress : (selectedRole === 'RESTAURANT' ? restaurantAddress || address : (selectedRole === 'NGO' ? ngoAddress || address : (selectedRole === 'DELIVERY_PARTNER' ? driverBaseAddress || address : address))),
+        location: selectedRole === 'CUSTOMER' ? customerLocationReference : (selectedRole === 'RESTAURANT' ? (confirmedRestaurantLocation?.address || `${city}, ${pincode}` || location) : (selectedRole === 'NGO' ? (confirmedNgoLocation?.address || `${ngoCity}, ${ngoPincode}` || location) : (selectedRole === 'DELIVERY_PARTNER' ? (confirmedDriverLocation?.address || `${driverCity}, ${driverPincode}` || location) : location))),
+        city: selectedRole === 'CUSTOMER' ? customerCity || null : (selectedRole === 'RESTAURANT' ? city : (selectedRole === 'NGO' ? ngoCity || null : (selectedRole === 'DELIVERY_PARTNER' ? driverCity || null : null))),
+        pincode: selectedRole === 'CUSTOMER' ? customerPincode || null : (selectedRole === 'RESTAURANT' ? pincode : (selectedRole === 'NGO' ? ngoPincode || null : (selectedRole === 'DELIVERY_PARTNER' ? driverPincode || null : null))),
+        latitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.latitude : (selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.latitude : (selectedRole === 'NGO' ? confirmedNgoLocation.latitude : (selectedRole === 'DELIVERY_PARTNER' ? confirmedDriverLocation.latitude : null))),
+        longitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.longitude : (selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.longitude : (selectedRole === 'NGO' ? confirmedNgoLocation.longitude : (selectedRole === 'DELIVERY_PARTNER' ? confirmedDriverLocation.longitude : null))),
         restaurantLatitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.latitude : null,
         restaurantLongitude: selectedRole === 'RESTAURANT' ? confirmedRestaurantLocation.longitude : null,
         customerLatitude: selectedRole === 'CUSTOMER' ? confirmedCustomerLocation.latitude : null,
@@ -482,11 +583,19 @@ export default function Register() {
         ngoLongitude: selectedRole === 'NGO' ? confirmedNgoLocation.longitude : null,
         ngoCity: selectedRole === 'NGO' ? (ngoCity || confirmedNgoLocation?.city || null) : null,
         ngoPincode: selectedRole === 'NGO' ? (ngoPincode || confirmedNgoLocation?.pincode || null) : null,
+        driverBaseLatitude: selectedRole === 'DELIVERY_PARTNER' ? confirmedDriverLocation.latitude : null,
+        driverBaseLongitude: selectedRole === 'DELIVERY_PARTNER' ? confirmedDriverLocation.longitude : null,
+        baseLatitude: selectedRole === 'DELIVERY_PARTNER' ? confirmedDriverLocation.latitude : null,
+        baseLongitude: selectedRole === 'DELIVERY_PARTNER' ? confirmedDriverLocation.longitude : null,
+        driverBaseAddress: selectedRole === 'DELIVERY_PARTNER' ? (driverBaseAddress || address) : null,
+        driverCity: selectedRole === 'DELIVERY_PARTNER' ? (driverCity || confirmedDriverLocation?.city || null) : null,
+        driverPincode: selectedRole === 'DELIVERY_PARTNER' ? (driverPincode || confirmedDriverLocation?.pincode || null) : null,
+        driverState: selectedRole === 'DELIVERY_PARTNER' ? (driverState || confirmedDriverLocation?.state || null) : null,
         locationSource: selectedRole === 'RESTAURANT' 
           ? (confirmedRestaurantLocation.locationSource || 'USER_CONFIRMED_MAP') 
           : (selectedRole === 'NGO'
             ? (confirmedNgoLocation.locationSource || 'USER_CONFIRMED_MAP')
-            : (selectedRole === 'CUSTOMER' ? (confirmedCustomerLocation.locationSource || 'USER_CONFIRMED_MAP') : null)),
+            : (selectedRole === 'CUSTOMER' ? (confirmedCustomerLocation.locationSource || 'USER_CONFIRMED_MAP') : (selectedRole === 'DELIVERY_PARTNER' ? 'USER_CONFIRMED_MAP' : null))),
         roles: [backendRole],
         
         // Customer specific
@@ -519,6 +628,7 @@ export default function Register() {
         organizationInfo: selectedRole === 'NGO' ? organizationInfo : null,
         foodRescueInfo: selectedRole === 'NGO' ? foodRescueInfo : null
       };
+
 
       const userObj = await register(payload);
 
@@ -1142,7 +1252,7 @@ export default function Register() {
             {selectedRole === 'DELIVERY_PARTNER' && (
               <>
                 <h4 style={{ fontFamily: 'var(--font-heading)', color: '#fff', marginBottom: '1.2rem', fontSize: '1.1rem' }}>
-                  STEP 2: DELIVERY PARTNER DETAILS
+                  STEP 2: RIDER ACCOUNT & VEHICLE DETAILS
                 </h4>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
                   <div>
@@ -1161,12 +1271,12 @@ export default function Register() {
                     <input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 99887 76655" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Residential Address *</label>
-                    <input type="text" required value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Koramangala 4th Block, Bengaluru" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
+                    <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Driving License / National ID Verification Number *</label>
+                    <input type="text" required value={verificationInfo} onChange={(e) => setVerificationInfo(e.target.value)} placeholder="DL-KA-2023-99887711" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.2rem' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Vehicle Type *</label>
                     <select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)} style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }}>
@@ -1182,9 +1292,136 @@ export default function Register() {
                   </div>
                 </div>
 
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Driving License / National ID Verification Number *</label>
-                  <input type="text" required value={verificationInfo} onChange={(e) => setVerificationInfo(e.target.value)} placeholder="DL-KA-2023-99887711" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.8rem', borderRadius: '10px' }} />
+                {/* STEP 3: BASE / SERVICE LOCATION */}
+                <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '1.2rem', marginTop: '0.5rem', marginBottom: '1.2rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <h4 style={{ fontFamily: 'var(--font-heading)', color: '#fff', margin: 0, fontSize: '1.1rem' }}>
+                      STEP 3: BASE / SERVICE LOCATION
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                      Registration Reference
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '1rem' }}>
+                    Used as your registered/base service location. Your live location will be requested separately when you go online for deliveries.
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>Base Area / Locality / Street *</label>
+                      <input type="text" required value={driverBaseAddress} onChange={(e) => setDriverBaseAddress(e.target.value)} placeholder="Koramangala 4th Block, 80 Feet Road" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-sub)', marginBottom: '4px' }}>City / Town *</label>
+                      <input type="text" required value={driverCity} onChange={(e) => setDriverCity(e.target.value)} placeholder="Bengaluru" style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <label style={{ fontSize: '0.82rem', color: 'var(--text-sub)' }}>6-Digit PIN *</label>
+                        {driverPinLoading && (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Loader2 size={11} className="animate-spin" /> Verifying...
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={driverPincode}
+                        onChange={handleDriverPincodeChange}
+                        placeholder="560034"
+                        style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid var(--bg-card-border)', padding: '0.75rem', borderRadius: '8px' }}
+                      />
+                      {driverPinStatus && (
+                        <div
+                          style={{
+                            marginTop: '4px',
+                            fontSize: '0.74rem',
+                            color: driverPinStatus.type === 'success' ? '#34d399' : (driverPinStatus.type === 'error' ? '#f87171' : '#fbbf24')
+                          }}
+                        >
+                          {driverPinStatus.type === 'success' ? '✓' : (driverPinStatus.type === 'error' ? '⚠' : 'ℹ')} {driverPinStatus.message}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Interactive Driver Base Map & Location Picker */}
+                  <LocationPicker
+                    initialLocation={
+                      confirmedDriverLocation?.latitude && confirmedDriverLocation?.longitude
+                        ? {
+                            latitude: confirmedDriverLocation.latitude,
+                            longitude: confirmedDriverLocation.longitude,
+                            address: confirmedDriverLocation.address || driverBaseAddress,
+                            city: driverCity,
+                            pincode: driverPincode
+                          }
+                        : (driverCity || driverPincode || driverBaseAddress
+                          ? {
+                              address: driverBaseAddress,
+                              city: driverCity,
+                              pincode: driverPincode
+                            }
+                          : null)
+                    }
+                    showSearch={true}
+                    title="Pin Base / Service Hub Location"
+                    description="Search your primary operating hub or locality, then drag the pin (📍) to confirm your base reference location."
+                    height="340px"
+                    onLocationConfirm={handleDriverLocationConfirm}
+                    onLocationChange={(liveLoc) => {
+                      if (confirmedDriverLocation && (confirmedDriverLocation.latitude !== liveLoc.latitude || confirmedDriverLocation.longitude !== liveLoc.longitude)) {
+                        setConfirmedDriverLocation(null);
+                      }
+                    }}
+                  />
+
+                  {confirmedDriverLocation ? (
+                    <div
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        color: '#34d399',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginTop: '0.8rem',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <CheckCircle2 size={18} />
+                        <span>
+                          <strong>Base location confirmed:</strong> {confirmedDriverLocation.address || `${confirmedDriverLocation.latitude.toFixed(4)}, ${confirmedDriverLocation.longitude.toFixed(4)}`}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', background: '#10b981', color: '#000', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                        READY
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        background: 'rgba(245, 158, 11, 0.12)',
+                        border: '1px solid rgba(245, 158, 11, 0.3)',
+                        color: '#fbbf24',
+                        padding: '0.6rem 0.9rem',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginTop: '0.8rem',
+                        fontSize: '0.8rem'
+                      }}
+                    >
+                      <AlertCircle size={15} />
+                      <span>Please pinpoint your base location on the map above and click "Confirm Location".</span>
+                    </div>
+                  )}
                 </div>
               </>
             )}

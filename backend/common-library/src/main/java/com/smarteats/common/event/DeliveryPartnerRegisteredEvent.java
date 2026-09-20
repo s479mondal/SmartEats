@@ -12,6 +12,8 @@ import java.io.Serializable;
 @NoArgsConstructor
 @AllArgsConstructor
 public class DeliveryPartnerRegisteredEvent implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private String userId;
     private String name;
     private String email;
@@ -20,4 +22,12 @@ public class DeliveryPartnerRegisteredEvent implements Serializable {
     private String vehicleType;
     private String vehicleNumber;
     private String verificationInfo;
+
+    // Base / Service Location fields
+    private String baseAddress;
+    private String city;
+    private String state;
+    private String pincode;
+    private Double baseLatitude;
+    private Double baseLongitude;
 }

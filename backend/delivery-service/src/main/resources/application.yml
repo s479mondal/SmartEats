@@ -28,3 +28,7 @@ kafka:
     order-delivered: smarteats.order.delivered
     driver-registered: smarteats.auth.driver-registered
     status-updated: smarteats.auth.status-updated
+
+services:
+  restaurant-service:
+    url: ${SERVICES_RESTAURANT_SERVICE_URL:http://localhost:8082}

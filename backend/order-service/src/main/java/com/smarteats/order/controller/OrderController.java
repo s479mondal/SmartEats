@@ -127,7 +127,15 @@ public class OrderController {
     }
 
     @GetMapping("/customer")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getCustomerOrders(@RequestHeader("X-User-Email") String email) {
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getCustomerOrders(
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        if (email == null || email.isBlank()) {
+            throw new UnauthorizedException("Authentication required: Missing user identity");
+        }
+        if (roles != null && !roles.contains("CUSTOMER") && !roles.contains("ADMIN") && !roles.contains("ROLE_CUSTOMER") && !roles.contains("ROLE_ADMIN")) {
+            throw new ForbiddenException("Access Denied: Customer privilege required");
+        }
         List<OrderResponse> orders = orderService.getOrdersForCustomer(email);
         return ResponseEntity.ok(ApiResponse.success(orders));
     }
@@ -135,19 +143,18 @@ public class OrderController {
     @GetMapping("/restaurant/{restaurantId}")
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getRestaurantOrders(
             @PathVariable String restaurantId,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
-        
-        checkRole(roles, "RESTAURANT_OWNER");
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "RESTAURANT_OWNER");
         List<OrderResponse> orders = orderService.getOrdersForRestaurant(restaurantId, email);
         return ResponseEntity.ok(ApiResponse.success(orders));
     }
 
     @GetMapping("/my/orders")
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getMyRestaurantOrders(
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
-        checkRole(roles, "RESTAURANT_OWNER");
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "RESTAURANT_OWNER");
         List<OrderResponse> orders = orderService.getMyRestaurantOrders(email);
         return ResponseEntity.ok(ApiResponse.success(orders));
     }
@@ -155,9 +162,9 @@ public class OrderController {
     @GetMapping("/my/orders/{orderId}")
     public ResponseEntity<ApiResponse<OrderResponse>> getMyRestaurantOrderById(
             @PathVariable String orderId,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
-        checkRole(roles, "RESTAURANT_OWNER");
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "RESTAURANT_OWNER");
         OrderResponse order = orderService.getMyRestaurantOrderById(orderId, email);
         return ResponseEntity.ok(ApiResponse.success(order));
     }
@@ -165,9 +172,9 @@ public class OrderController {
     @PatchMapping("/my/orders/{orderId}/accept")
     public ResponseEntity<ApiResponse<OrderResponse>> acceptOrder(
             @PathVariable String orderId,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
-        checkRole(roles, "RESTAURANT_OWNER");
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "RESTAURANT_OWNER");
         OrderResponse order = orderService.acceptOrder(orderId, email);
         return ResponseEntity.ok(ApiResponse.success(order, "Order accepted successfully"));
     }
@@ -175,9 +182,9 @@ public class OrderController {
     @PatchMapping("/my/orders/{orderId}/reject")
     public ResponseEntity<ApiResponse<OrderResponse>> rejectOrder(
             @PathVariable String orderId,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
-        checkRole(roles, "RESTAURANT_OWNER");
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "RESTAURANT_OWNER");
         OrderResponse order = orderService.rejectOrder(orderId, email);
         return ResponseEntity.ok(ApiResponse.success(order, "Order rejected"));
     }
@@ -185,9 +192,9 @@ public class OrderController {
     @PatchMapping("/my/orders/{orderId}/preparing")
     public ResponseEntity<ApiResponse<OrderResponse>> preparingOrder(
             @PathVariable String orderId,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
-        checkRole(roles, "RESTAURANT_OWNER");
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "RESTAURANT_OWNER");
         OrderResponse order = orderService.preparingOrder(orderId, email);
         return ResponseEntity.ok(ApiResponse.success(order, "Order preparation started"));
     }
@@ -195,9 +202,9 @@ public class OrderController {
     @PatchMapping("/my/orders/{orderId}/ready")
     public ResponseEntity<ApiResponse<OrderResponse>> readyOrder(
             @PathVariable String orderId,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
-        checkRole(roles, "RESTAURANT_OWNER");
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "RESTAURANT_OWNER");
         OrderResponse order = orderService.readyOrder(orderId, email);
         return ResponseEntity.ok(ApiResponse.success(order, "Order marked ready for pickup"));
     }
@@ -206,19 +213,28 @@ public class OrderController {
     public ResponseEntity<ApiResponse<OrderResponse>> updateStatus(
             @PathVariable String id,
             @RequestParam String status,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
-        
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        if (email == null || email.isBlank()) {
+            throw new UnauthorizedException("Authentication required: Missing user identity");
+        }
         log.info("Request to update order {} status to {} by {}", id, status, email);
         OrderResponse order = orderService.updateOrderStatus(id, status, email, roles);
         return ResponseEntity.ok(ApiResponse.success(order, "Order status updated successfully"));
     }
 
-    // Role verification helper
-    private void checkRole(String rolesHeader, String requiredRole) {
+    // Role & Auth verification helper
+    private void checkAuthAndRole(String email, String rolesHeader, String requiredRole) {
+        if (email == null || email.isBlank()) {
+            throw new UnauthorizedException("Authentication required: Missing user identity");
+        }
         if (rolesHeader == null || (!rolesHeader.contains(requiredRole) && !rolesHeader.contains("ADMIN"))) {
             throw new ForbiddenException("Access Denied: You do not possess the required privilege " + requiredRole);
         }
+    }
+
+    private void checkRole(String rolesHeader, String requiredRole) {
+        checkAuthAndRole("placeholder@smarteats.com", rolesHeader, requiredRole);
     }
 
     @GetMapping("/cache/test")

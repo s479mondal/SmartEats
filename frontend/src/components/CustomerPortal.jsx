@@ -1,20 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { rescueApi, orderApi } from '../api/orderApi';
 import { restaurantApi } from '../api/restaurantApi';
 import RestaurantCard from './restaurant/RestaurantCard';
+import OrderTrackingView from './customer/OrderTrackingView';
 import { getCustomerAvailabilityStatus, checkCartItemInventory } from '../utils/inventoryUtils';
 import { initiateRazorpayCheckout } from '../utils/razorpayUtils';
+import { computeCombinedOrderStatus, ORDER_STATUS_MAP, formatOrderTimestamp } from '../utils/orderStatusUtils';
 
 export default function CustomerPortal({ cart = [], setCart, addToCart, updateCartQty, removeFromCart }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('ALL');
   const [menuItems, setMenuItems] = useState([]);
   const [rescueOffers, setRescueOffers] = useState([]);
   const [activeOrder, setActiveOrder] = useState(null);
   const [customerOrders, setCustomerOrders] = useState([]);
+  const [trackingModalOrderId, setTrackingModalOrderId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutStatusMsg, setCheckoutStatusMsg] = useState('');
@@ -53,11 +57,38 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, updateCa
       const fetchedOrders = ordersRes?.data || ordersRes || [];
       setCustomerOrders(Array.isArray(fetchedOrders) ? fetchedOrders : []);
       if (Array.isArray(fetchedOrders) && fetchedOrders.length > 0) {
-        const active = fetchedOrders.find(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED');
+        const active = fetchedOrders.find(
+          o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'REJECTED'
+        );
         if (active) setActiveOrder(active);
       }
     }).finally(() => setLoading(false));
   }, []);
+
+  // Polling for active orders (every 8 seconds when active order exists)
+  useEffect(() => {
+    const hasActive = customerOrders.some(
+      o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'REJECTED'
+    );
+    if (!hasActive) return;
+
+    const interval = setInterval(() => {
+      orderApi.getCustomerOrders().then((ordersRes) => {
+        const fetchedOrders = ordersRes?.data || ordersRes || [];
+        if (Array.isArray(fetchedOrders)) {
+          setCustomerOrders(fetchedOrders);
+          const active = fetchedOrders.find(
+            o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'REJECTED'
+          );
+          setActiveOrder(active || null);
+        }
+      }).catch((err) => {
+        console.warn('Customer active orders polling warning:', err);
+      });
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [customerOrders]);
 
   // Fetch Restaurants based on Discovery Mode & Radius
   useEffect(() => {
@@ -267,23 +298,76 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, updateCa
         </div>
       </div>
 
-      {/* Active Order Banner */}
-      {activeOrder && (
-        <div className="card" style={{ marginBottom: '2.5rem', borderColor: 'var(--accent-cyan)', background: 'rgba(0, 242, 254, 0.05)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <span className="badge badge-ai" style={{ marginBottom: '0.4rem' }}>Active Order</span>
-              <h3 style={{ fontFamily: 'var(--font-heading)' }}>Order #{activeOrder.id || '1024'}</h3>
-              <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', marginTop: '4px' }}>
-                Status: {activeOrder.status || 'PREPARING'}... • Estimated arrival: {activeOrder.etaMinutes || 28} mins
-              </p>
+      {/* Active Order Banner with Live Progress */}
+      {activeOrder && (() => {
+        const combined = computeCombinedOrderStatus(activeOrder);
+        return (
+          <div className="card" style={{
+            marginBottom: '2.5rem',
+            borderColor: combined.isError ? '#ef4444' : 'var(--accent-cyan)',
+            background: combined.isError ? 'rgba(239, 68, 68, 0.06)' : 'rgba(0, 242, 254, 0.05)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.4rem' }}>
+                  <span className="badge badge-ai" style={{ background: combined.badgeColor, color: combined.isDelivered ? '#fff' : '#000' }}>
+                    {combined.currentLabel}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--accent-green)', fontWeight: 700 }}>
+                    ● Live Tracking Active
+                  </span>
+                </div>
+                <h3 style={{ fontFamily: 'var(--font-heading)', margin: '4px 0', fontSize: '1.25rem' }}>
+                  Order #{activeOrder.id ? activeOrder.id.substring(0, 10) : '---'}
+                </h3>
+                <p style={{ color: 'var(--text-sub)', fontSize: '0.85rem', marginTop: '2px', marginBottom: '8px' }}>
+                  {combined.currentDescription} • Placed {formatOrderTimestamp(activeOrder.createdAt)}
+                </p>
+
+                {/* Mini Progress Bar */}
+                <div style={{
+                  width: '100%',
+                  maxWidth: '380px',
+                  height: '6px',
+                  background: 'rgba(255,255,255,0.1)',
+                  borderRadius: '10px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${combined.progressPct}%`,
+                    height: '100%',
+                    background: 'var(--primary-gradient)',
+                    borderRadius: '10px',
+                    transition: 'width 0.4s ease'
+                  }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => setTrackingModalOrderId(activeOrder.id)}
+                  className="btn-action"
+                  style={{
+                    textDecoration: 'none',
+                    padding: '0.7rem 1.4rem',
+                    width: 'auto',
+                    margin: 0,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontWeight: 700
+                  }}
+                >
+                  <span>🧭 Track Order Live</span>
+                  <span>→</span>
+                </button>
+              </div>
             </div>
-            <Link to="/customer/dashboard" className="btn-action" style={{ textDecoration: 'none', padding: '0.6rem 1.2rem', width: 'auto' }}>
-              Track Order
-            </Link>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Restaurant Discovery & Proximity Section (Step 7 Core Feature) */}
       <div className="card" style={{ marginBottom: '2.5rem', borderColor: 'rgba(0, 242, 254, 0.3)' }}>
@@ -804,23 +888,99 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, updateCa
           {customerOrders.length > 0 && (
             <div className="card">
               <h3 style={{ fontFamily: 'var(--font-heading)', marginBottom: '0.8rem' }}>📦 Order History ({customerOrders.length})</h3>
-              <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
-                {customerOrders.map((ord) => (
-                  <div key={ord.id} style={{ padding: '0.6rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.8rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                      <span>Order #{ord.id?.substring(0, 8)}</span>
-                      <span style={{ color: ord.status === 'DELIVERED' ? 'var(--accent-green)' : '#f59e0b' }}>{ord.status}</span>
+              <div style={{ maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
+                {customerOrders.map((ord) => {
+                  const statusInfo = ORDER_STATUS_MAP[ord.status] || { label: ord.status, badgeColor: '#64748b' };
+                  const isDelivered = ord.status === 'DELIVERED';
+                  const isFailed = ord.status === 'CANCELLED' || ord.status === 'REJECTED';
+
+                  return (
+                    <div key={ord.id} style={{
+                      padding: '0.75rem 0',
+                      borderBottom: '1px solid rgba(255,255,255,0.06)',
+                      fontSize: '0.82rem'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: 700, color: '#fff' }}>
+                          Order #{ord.id ? ord.id.substring(0, 8) : '---'}
+                        </span>
+                        <span style={{
+                          background: isFailed ? 'rgba(239, 68, 68, 0.15)' : (isDelivered ? 'rgba(34, 197, 94, 0.15)' : 'rgba(59, 130, 246, 0.15)'),
+                          color: statusInfo.badgeColor,
+                          border: `1px solid ${statusInfo.badgeColor}`,
+                          padding: '1px 8px',
+                          borderRadius: '10px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700
+                        }}>
+                          {statusInfo.label}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-sub)' }}>
+                        <div>
+                          <span>Total: ₹{ord.totalAmount}</span>
+                          <span style={{ margin: '0 4px' }}>•</span>
+                          <span>{ord.items?.length || 0} items</span>
+                        </div>
+                        <button
+                          onClick={() => setTrackingModalOrderId(ord.id)}
+                          style={{
+                            background: 'rgba(0, 242, 254, 0.1)',
+                            border: '1px solid rgba(0, 242, 254, 0.25)',
+                            color: 'var(--accent-cyan)',
+                            padding: '3px 10px',
+                            borderRadius: '6px',
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Track / View →
+                        </button>
+                      </div>
+
+                      {ord.createdAt && (
+                        <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.7rem', marginTop: '3px' }}>
+                          {formatOrderTimestamp(ord.createdAt)}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ color: 'var(--text-sub)', marginTop: '2px' }}>
-                      Total: ₹{ord.totalAmount} • {ord.items?.length || 0} items
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Interactive Order Tracking Modal */}
+      {trackingModalOrderId && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '1.5rem'
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '850px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            borderRadius: '20px'
+          }}>
+            <OrderTrackingView
+              orderId={trackingModalOrderId}
+              onClose={() => setTrackingModalOrderId(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

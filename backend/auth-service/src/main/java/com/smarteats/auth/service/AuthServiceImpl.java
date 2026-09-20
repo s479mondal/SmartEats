@@ -281,7 +281,55 @@ public class AuthServiceImpl implements AuthService {
                 throw new BadRequestException("NGO physical address or verified map coordinates are required.");
             }
         }
-        validateCoordinates(ngoLat, ngoLng);
+        // 4. Delivery Partner Base Location Resolution & Geocoding
+        boolean isDeliveryPartner = request.getRoles().contains(Role.DELIVERY_PARTNER);
+        Double driverLat = request.getDriverBaseLatitude() != null ? request.getDriverBaseLatitude() 
+                : (request.getBaseLatitude() != null ? request.getBaseLatitude() 
+                : (isDeliveryPartner ? request.getLatitude() : null));
+        Double driverLng = request.getDriverBaseLongitude() != null ? request.getDriverBaseLongitude() 
+                : (request.getBaseLongitude() != null ? request.getBaseLongitude() 
+                : (isDeliveryPartner ? request.getLongitude() : null));
+        String driverBaseAddr = request.getDriverBaseAddress() != null ? request.getDriverBaseAddress() : request.getAddress();
+        String driverCity = request.getDriverCity() != null ? request.getDriverCity() : request.getCity();
+        String driverPincode = request.getDriverPincode() != null ? request.getDriverPincode() : request.getPincode();
+        String driverState = request.getDriverState();
+
+        if (isDeliveryPartner) {
+            validateCoordinates(driverLat, driverLng);
+            String driverAddressQuery = buildAddressQuery(driverBaseAddr, driverCity, driverPincode, request.getLocation());
+            if (driverAddressQuery != null && !driverAddressQuery.isBlank()) {
+                log.info("Triggering authoritative geocoding for delivery partner registration base address: '{}'", driverAddressQuery);
+                GeocodingResult result = geocodingService.geocodeAddress(driverAddressQuery);
+                if (result.isSuccess()) {
+                    double geoLat = result.getLatitude();
+                    double geoLng = result.getLongitude();
+                    if (driverLat != null && driverLng != null) {
+                        double distanceKm = calculateDistanceKm(geoLat, geoLng, driverLat, driverLng);
+                        if (distanceKm <= 50.0) {
+                            log.info("Client confirmed driver base coordinates (lat={}, lon={}) are within {} km of geocoded center (lat={}, lon={}). Retaining fine-tuned coordinates.",
+                                    driverLat, driverLng, String.format("%.2f", distanceKm), geoLat, geoLng);
+                        } else {
+                            log.warn("Client submitted driver coordinates (lat={}, lon={}) are {} km away from geocoded address center (lat={}, lon={}). Overwriting with authoritative geocoded coordinates.",
+                                    driverLat, driverLng, String.format("%.2f", distanceKm), geoLat, geoLng);
+                            driverLat = geoLat;
+                            driverLng = geoLng;
+                        }
+                    } else {
+                        driverLat = geoLat;
+                        driverLng = geoLng;
+                    }
+                    log.info("Final driver base coordinates: lat={}, lon={}", driverLat, driverLng);
+                } else if (driverLat != null && driverLng != null && isWithinIndiaBounds(driverLat, driverLng)) {
+                    log.info("Using verified driver base map coordinates within India bounds: lat={}, lon={}", driverLat, driverLng);
+                } else {
+                    log.warn("Driver base address geocoding failed for '{}': {}", driverAddressQuery, result.getErrorMessage());
+                    throw new BadRequestException("Driver base address verification failed: " + result.getErrorMessage() + ". Please provide a valid physical base service address.");
+                }
+            } else if (driverLat != null && driverLng != null && isWithinIndiaBounds(driverLat, driverLng)) {
+                log.info("Using verified driver base coordinates without address query: lat={}, lon={}", driverLat, driverLng);
+            }
+        }
+        validateCoordinates(driverLat, driverLng);
 
         // Base user mapping
         User.UserBuilder userBuilder = User.builder()
@@ -319,6 +367,12 @@ public class AuthServiceImpl implements AuthService {
                 .vehicleType(request.getVehicleType())
                 .vehicleNumber(request.getVehicleNumber())
                 .verificationInfo(request.getVerificationInfo())
+                .driverBaseAddress(driverBaseAddr)
+                .driverCity(driverCity)
+                .driverState(driverState)
+                .driverPincode(driverPincode)
+                .driverBaseLatitude(driverLat)
+                .driverBaseLongitude(driverLng)
                 .ngoName(request.getNgoName())
                 .contactPerson(request.getContactPerson())
                 .ngoAddress(request.getNgoAddress())
@@ -376,6 +430,12 @@ public class AuthServiceImpl implements AuthService {
                             .email(savedUser.getEmail())
                             .phone(savedUser.getPhone())
                             .address(savedUser.getAddress())
+                            .baseAddress(savedUser.getDriverBaseAddress() != null ? savedUser.getDriverBaseAddress() : savedUser.getAddress())
+                            .city(savedUser.getDriverCity())
+                            .state(savedUser.getDriverState())
+                            .pincode(savedUser.getDriverPincode())
+                            .baseLatitude(savedUser.getDriverBaseLatitude())
+                            .baseLongitude(savedUser.getDriverBaseLongitude())
                             .vehicleType(savedUser.getVehicleType())
                             .vehicleNumber(savedUser.getVehicleNumber())
                             .verificationInfo(savedUser.getVerificationInfo())
@@ -494,6 +554,12 @@ public class AuthServiceImpl implements AuthService {
                 .vehicleType(user.getVehicleType())
                 .vehicleNumber(user.getVehicleNumber())
                 .verificationInfo(user.getVerificationInfo())
+                .driverBaseAddress(user.getDriverBaseAddress())
+                .driverCity(user.getDriverCity())
+                .driverState(user.getDriverState())
+                .driverPincode(user.getDriverPincode())
+                .driverBaseLatitude(user.getDriverBaseLatitude())
+                .driverBaseLongitude(user.getDriverBaseLongitude())
                 .ngoName(user.getNgoName())
                 .contactPerson(user.getContactPerson())
                 .ngoAddress(user.getNgoAddress())

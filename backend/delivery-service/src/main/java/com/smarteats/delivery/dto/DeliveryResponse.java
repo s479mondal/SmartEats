@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -16,9 +18,22 @@ public class DeliveryResponse {
     private String restaurantId;
     private String customerEmail;
     private String deliveryPartnerEmail;
+    private String driverName;
+    private String driverPhone;
     private DeliveryStatus status;
     private double restaurantLatitude;
     private double restaurantLongitude;
     private double deliveryLatitude;
     private double deliveryLongitude;
+
+    // Driver Live Operational GPS (Step 8.3C)
+    private Double driverCurrentLatitude;
+    private Double driverCurrentLongitude;
+    private LocalDateTime driverLastLocationUpdate;
+    private Double driverLocationAccuracyMeters;
+
+    // Restaurant Contact & Info (Step 8.4B)
+    private String restaurantName;
+    private String restaurantPhone;
+    private String restaurantAddress;
 }

@@ -72,6 +72,7 @@ class OrderInventoryCheckoutTest {
         ReflectionTestUtils.setField(orderService, "orderStatusTopic", "smarteats.order.status");
         ReflectionTestUtils.setField(orderService, "orderAcceptedTopic", "smarteats.order.accepted");
         ReflectionTestUtils.setField(orderService, "orderReadyTopic", "smarteats.order.ready");
+        lenient().when(restaurantServiceClient.isOwnerOfRestaurant(anyString(), anyString())).thenReturn(true);
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.smarteats.delivery.controller;
 import com.smarteats.common.dto.ApiResponse;
 import com.smarteats.common.exception.ForbiddenException;
 import com.smarteats.common.exception.UnauthorizedException;
+import com.smarteats.delivery.dto.DeliveryLocationUpdateRequest;
 import com.smarteats.delivery.dto.DeliveryPartnerRegisterRequest;
 import com.smarteats.delivery.dto.DeliveryPartnerResponse;
 import com.smarteats.delivery.dto.DeliveryResponse;
@@ -36,30 +37,60 @@ public class DeliveryController {
                 .body(ApiResponse.success(response, "Delivery partner registered successfully"));
     }
 
+    @PostMapping("/partner/location")
+    public ResponseEntity<ApiResponse<DeliveryPartnerResponse>> updateLocation(
+            @Valid @RequestBody DeliveryLocationUpdateRequest request,
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        
+        checkAuthAndRole(email, roles, "DELIVERY_PARTNER");
+        DeliveryPartnerResponse response = deliveryService.updatePartnerLocation(
+                email, request.getLatitude(), request.getLongitude(), request.getAccuracy());
+        return ResponseEntity.ok(ApiResponse.success(response, "Live location updated successfully"));
+    }
+
     @PutMapping("/partner/availability")
     public ResponseEntity<ApiResponse<DeliveryPartnerResponse>> updateAvailability(
             @RequestParam boolean active,
             @RequestParam boolean available,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
         
-        checkRole(roles, "DELIVERY_PARTNER");
+        checkAuthAndRole(email, roles, "DELIVERY_PARTNER");
         DeliveryPartnerResponse response = deliveryService.updatePartnerAvailability(email, active, available);
         return ResponseEntity.ok(ApiResponse.success(response, "Availability status updated"));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<DeliveryResponse>> getDeliveryById(@PathVariable String id) {
-        DeliveryResponse response = deliveryService.getDeliveryById(id);
+    public ResponseEntity<ApiResponse<DeliveryResponse>> getDeliveryById(
+            @PathVariable String id,
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        if (email == null || email.isBlank()) {
+            throw new UnauthorizedException("Authentication required: Missing user identity");
+        }
+        DeliveryResponse response = deliveryService.getDeliveryById(id, email, roles);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/order/{orderId}")
+    public ResponseEntity<ApiResponse<DeliveryResponse>> getDeliveryByOrderId(
+            @PathVariable String orderId,
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        if (email == null || email.isBlank()) {
+            throw new UnauthorizedException("Authentication required: Missing user identity");
+        }
+        DeliveryResponse response = deliveryService.getDeliveryByOrderId(orderId, email, roles);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     @GetMapping("/my-deliveries")
     public ResponseEntity<ApiResponse<List<DeliveryResponse>>> getMyDeliveries(
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
         
-        checkRole(roles, "DELIVERY_PARTNER");
+        checkAuthAndRole(email, roles, "DELIVERY_PARTNER");
         List<DeliveryResponse> list = deliveryService.getPartnerDeliveries(email);
         return ResponseEntity.ok(ApiResponse.success(list));
     }
@@ -67,10 +98,10 @@ public class DeliveryController {
     @PutMapping("/{id}/accept")
     public ResponseEntity<ApiResponse<DeliveryResponse>> accept(
             @PathVariable String id,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
         
-        checkRole(roles, "DELIVERY_PARTNER");
+        checkAuthAndRole(email, roles, "DELIVERY_PARTNER");
         DeliveryResponse response = deliveryService.acceptDelivery(id, email);
         return ResponseEntity.ok(ApiResponse.success(response, "Delivery accepted successfully"));
     }
@@ -79,18 +110,24 @@ public class DeliveryController {
     public ResponseEntity<ApiResponse<DeliveryResponse>> updateStatus(
             @PathVariable String id,
             @RequestParam String status,
-            @RequestHeader("X-User-Email") String email,
-            @RequestHeader("X-User-Roles") String roles) {
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
         
-        checkRole(roles, "DELIVERY_PARTNER");
+        checkAuthAndRole(email, roles, "DELIVERY_PARTNER");
         DeliveryResponse response = deliveryService.updateDeliveryStatus(id, status, email);
         return ResponseEntity.ok(ApiResponse.success(response, "Delivery status updated successfully"));
     }
 
-    // Role verification helper
-    private void checkRole(String rolesHeader, String requiredRole) {
+    private void checkAuthAndRole(String email, String rolesHeader, String requiredRole) {
+        if (email == null || email.isBlank()) {
+            throw new UnauthorizedException("Authentication required: Missing user identity");
+        }
         if (rolesHeader == null || (!rolesHeader.contains(requiredRole) && !rolesHeader.contains("ADMIN"))) {
             throw new ForbiddenException("Access Denied: You do not possess the required privilege " + requiredRole);
         }
+    }
+
+    private void checkRole(String rolesHeader, String requiredRole) {
+        checkAuthAndRole("placeholder@smarteats.com", rolesHeader, requiredRole);
     }
 }

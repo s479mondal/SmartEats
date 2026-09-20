@@ -1,6 +1,7 @@
 package com.smarteats.delivery.service;
 
 import com.smarteats.common.exception.BadRequestException;
+import com.smarteats.common.exception.ForbiddenException;
 import com.smarteats.common.exception.ResourceNotFoundException;
 import com.smarteats.delivery.dto.DeliveryPartnerRegisterRequest;
 import com.smarteats.delivery.dto.DeliveryPartnerResponse;
@@ -15,7 +16,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -27,6 +30,7 @@ public class DeliveryServiceImpl implements DeliveryService {
     private final DeliveryPartnerRepository partnerRepository;
     private final DeliveryAssignmentStrategy assignmentStrategy;
     private final org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate;
+    private final com.smarteats.delivery.client.RestaurantServiceClient restaurantServiceClient;
 
     @Value("${kafka.topic.delivery-assigned:smarteats.delivery.assigned}")
     private String deliveryAssignedTopic;
@@ -35,27 +39,46 @@ public class DeliveryServiceImpl implements DeliveryService {
     private String orderDeliveredTopic;
 
     // Constructor injection
+    @org.springframework.beans.factory.annotation.Autowired
     public DeliveryServiceImpl(DeliveryRepository deliveryRepository,
                                DeliveryPartnerRepository partnerRepository,
                                DeliveryAssignmentStrategy assignmentStrategy,
-                               org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate) {
+                               org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate,
+                               com.smarteats.delivery.client.RestaurantServiceClient restaurantServiceClient) {
         this.deliveryRepository = deliveryRepository;
         this.partnerRepository = partnerRepository;
         this.assignmentStrategy = assignmentStrategy;
         this.kafkaTemplate = kafkaTemplate;
+        this.restaurantServiceClient = restaurantServiceClient;
+    }
+
+    public DeliveryServiceImpl(DeliveryRepository deliveryRepository,
+                               DeliveryPartnerRepository partnerRepository,
+                               DeliveryAssignmentStrategy assignmentStrategy,
+                               org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate) {
+        this(deliveryRepository, partnerRepository, assignmentStrategy, kafkaTemplate, null);
     }
 
     @Override
     public DeliveryPartnerResponse registerPartner(DeliveryPartnerRegisterRequest request) {
-        if (partnerRepository.findByEmail(request.getEmail()).isPresent()) {
+        if (partnerRepository.findFirstByEmail(request.getEmail()).isPresent()) {
             throw new BadRequestException("Rider with email already registered!");
         }
+
+        double baseLat = request.getBaseLatitude() != null ? request.getBaseLatitude() : request.getLatitude();
+        double baseLng = request.getBaseLongitude() != null ? request.getBaseLongitude() : request.getLongitude();
 
         DeliveryPartner partner = DeliveryPartner.builder()
                 .name(request.getName())
                 .email(request.getEmail())
-                .latitude(request.getLatitude())
-                .longitude(request.getLongitude())
+                .baseAddress(request.getBaseAddress())
+                .city(request.getCity())
+                .state(request.getState())
+                .pincode(request.getPincode())
+                .baseLatitude(baseLat)
+                .baseLongitude(baseLng)
+                .latitude(baseLat)
+                .longitude(baseLng)
                 .active(true)
                 .available(true)
                 .build();
@@ -66,7 +89,7 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     public DeliveryPartnerResponse updatePartnerAvailability(String email, boolean active, boolean available) {
-        DeliveryPartner partner = partnerRepository.findByEmail(email)
+        DeliveryPartner partner = partnerRepository.findFirstByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("Rider not found with email: " + email));
 
         partner.setActive(active);
@@ -77,10 +100,81 @@ public class DeliveryServiceImpl implements DeliveryService {
     }
 
     @Override
+    public DeliveryPartnerResponse updatePartnerLocation(String email, Double latitude, Double longitude, Double accuracy) {
+        if (latitude == null || longitude == null || latitude.isNaN() || latitude.isInfinite() || longitude.isNaN() || longitude.isInfinite()) {
+            throw new BadRequestException("Latitude and Longitude cannot be null, NaN, or infinite");
+        }
+        if (latitude < -90.0 || latitude > 90.0) {
+            throw new BadRequestException("Latitude must be between -90.0 and +90.0. Provided: " + latitude);
+        }
+        if (longitude < -180.0 || longitude > 180.0) {
+            throw new BadRequestException("Longitude must be between -180.0 and +180.0. Provided: " + longitude);
+        }
+        if (accuracy != null && (accuracy < 0.0 || accuracy.isNaN() || accuracy.isInfinite())) {
+            throw new BadRequestException("Accuracy must be non-negative. Provided: " + accuracy);
+        }
+
+        DeliveryPartner partner = partnerRepository.findFirstByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("Rider not found with email: " + email));
+
+        partner.setCurrentLatitude(latitude);
+        partner.setCurrentLongitude(longitude);
+        partner.setLastLocationUpdate(LocalDateTime.now());
+        partner.setLocationAccuracyMeters(accuracy);
+
+        DeliveryPartner saved = partnerRepository.save(partner);
+        log.info("Updated live GPS location for rider {}: lat={}, lng={}, acc={}m, timestamp={}",
+                email, latitude, longitude, accuracy, saved.getLastLocationUpdate());
+        return mapToPartnerResponse(saved);
+    }
+
+    @Override
     public DeliveryResponse getDeliveryById(String id) {
         Delivery delivery = deliveryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Delivery details not found with ID: " + id));
         return mapToResponse(delivery);
+    }
+
+    @Override
+    public DeliveryResponse getDeliveryById(String id, String userEmail, String roles) {
+        Delivery delivery = deliveryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Delivery details not found with ID: " + id));
+
+        verifyDeliveryOwnershipOrAccess(delivery, userEmail, roles);
+        return mapToResponse(delivery);
+    }
+
+    @Override
+    public DeliveryResponse getDeliveryByOrderId(String orderId, String userEmail, String roles) {
+        Delivery delivery = deliveryRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Delivery details not found for order ID: " + orderId));
+
+        verifyDeliveryOwnershipOrAccess(delivery, userEmail, roles);
+        return mapToResponse(delivery);
+    }
+
+    private void verifyDeliveryOwnershipOrAccess(Delivery delivery, String userEmail, String roles) {
+        boolean isAdmin = roles != null && (roles.contains("ADMIN") || roles.contains("ROLE_ADMIN"));
+        if (isAdmin) {
+            return;
+        }
+
+        boolean isDriverAssigned = roles != null && (roles.contains("DELIVERY_PARTNER") || roles.contains("DRIVER"))
+                && delivery.getDeliveryPartnerEmail() != null
+                && delivery.getDeliveryPartnerEmail().equalsIgnoreCase(userEmail);
+
+        boolean isCustomerOwner = userEmail != null && delivery.getCustomerEmail() != null
+                && delivery.getCustomerEmail().equalsIgnoreCase(userEmail);
+
+        boolean isRestaurantOwner = roles != null && roles.contains("RESTAURANT_OWNER")
+                && delivery.getRestaurantId() != null
+                && (restaurantServiceClient == null || restaurantServiceClient.isOwnerOfRestaurant(userEmail, delivery.getRestaurantId()));
+
+        if (!isDriverAssigned && !isCustomerOwner && !isRestaurantOwner) {
+            log.warn("Access Denied (Delivery IDOR Prevention): User '{}' with roles '{}' attempted to access delivery '{}' (assigned driver: '{}', restaurant: '{}')",
+                    userEmail, roles, delivery.getId(), delivery.getDeliveryPartnerEmail(), delivery.getRestaurantId());
+            throw new ForbiddenException("Access Denied: You do not have permission to view this delivery");
+        }
     }
 
     @Override
@@ -95,11 +189,19 @@ public class DeliveryServiceImpl implements DeliveryService {
         Delivery delivery = deliveryRepository.findById(deliveryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Delivery details not found with ID: " + deliveryId));
 
-        if (delivery.getStatus() != DeliveryStatus.PENDING) {
-            throw new BadRequestException("Delivery is already assigned or completed!");
+        if (delivery.getDeliveryPartnerEmail() != null
+                && !delivery.getDeliveryPartnerEmail().isBlank()
+                && !delivery.getDeliveryPartnerEmail().equalsIgnoreCase(partnerEmail)) {
+            log.warn("Access Denied: Driver '{}' attempted to accept delivery '{}' assigned to '{}'",
+                    partnerEmail, deliveryId, delivery.getDeliveryPartnerEmail());
+            throw new ForbiddenException("Access Denied: This delivery is assigned to another driver");
         }
 
-        DeliveryPartner partner = partnerRepository.findByEmail(partnerEmail)
+        if (delivery.getStatus() != DeliveryStatus.PENDING && delivery.getStatus() != DeliveryStatus.ASSIGNED) {
+            throw new BadRequestException("Delivery is not in an acceptable state!");
+        }
+
+        DeliveryPartner partner = partnerRepository.findFirstByEmail(partnerEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("Rider not found with email: " + partnerEmail));
 
         delivery.setDeliveryPartnerEmail(partnerEmail);
@@ -110,7 +212,12 @@ public class DeliveryServiceImpl implements DeliveryService {
         partnerRepository.save(partner);
 
         // Publish event to Kafka
-        kafkaTemplate.send(deliveryAssignedTopic, savedDelivery.getOrderId(), savedDelivery.getOrderId());
+        Map<String, Object> eventPayload = Map.of(
+                "orderId", savedDelivery.getOrderId(),
+                "customerEmail", savedDelivery.getCustomerEmail() != null ? savedDelivery.getCustomerEmail() : "",
+                "deliveryPartnerEmail", partnerEmail
+        );
+        kafkaTemplate.send(deliveryAssignedTopic, savedDelivery.getOrderId(), eventPayload);
         log.info("Delivery for order {} accepted by rider {}", savedDelivery.getOrderId(), partnerEmail);
 
         return mapToResponse(savedDelivery);
@@ -121,8 +228,10 @@ public class DeliveryServiceImpl implements DeliveryService {
         Delivery delivery = deliveryRepository.findById(deliveryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Delivery details not found with ID: " + deliveryId));
 
-        if (!delivery.getDeliveryPartnerEmail().equalsIgnoreCase(partnerEmail)) {
-            throw new BadRequestException("You are not authorized to update this delivery!");
+        if (delivery.getDeliveryPartnerEmail() == null || !delivery.getDeliveryPartnerEmail().equalsIgnoreCase(partnerEmail)) {
+            log.warn("Access Denied (Cross-Driver IDOR Prevention): Driver '{}' attempted to update status of delivery '{}' assigned to '{}'",
+                    partnerEmail, deliveryId, delivery.getDeliveryPartnerEmail());
+            throw new ForbiddenException("Access Denied: You are not authorized to update this delivery");
         }
 
         DeliveryStatus newStatus;
@@ -132,23 +241,55 @@ public class DeliveryServiceImpl implements DeliveryService {
             throw new BadRequestException("Invalid delivery status: " + status);
         }
 
+        validateDeliveryStateTransition(delivery.getStatus(), newStatus);
+
         delivery.setStatus(newStatus);
         Delivery saved = deliveryRepository.save(delivery);
-        log.info("Delivery {} status updated to {}", deliveryId, newStatus);
+        log.info("Delivery {} status updated from {} to {}", deliveryId, delivery.getStatus(), newStatus);
 
         if (newStatus == DeliveryStatus.DELIVERED) {
             // Free the rider
-            partnerRepository.findByEmail(partnerEmail).ifPresent(p -> {
+            partnerRepository.findFirstByEmail(partnerEmail).ifPresent(p -> {
                 p.setAvailable(true);
                 partnerRepository.save(p);
             });
 
             // Publish OrderDelivered event
-            kafkaTemplate.send(orderDeliveredTopic, delivery.getOrderId(), delivery.getOrderId());
+            Map<String, Object> eventPayload = Map.of(
+                    "orderId", delivery.getOrderId(),
+                    "customerEmail", delivery.getCustomerEmail() != null ? delivery.getCustomerEmail() : "",
+                    "deliveryPartnerEmail", partnerEmail
+            );
+            kafkaTemplate.send(orderDeliveredTopic, delivery.getOrderId(), eventPayload);
             log.info("Published OrderDelivered event to Kafka for order: {}", delivery.getOrderId());
         }
 
         return mapToResponse(saved);
+    }
+
+    private void validateDeliveryStateTransition(DeliveryStatus current, DeliveryStatus next) {
+        if (current == next) {
+            return;
+        }
+        if (current == DeliveryStatus.PENDING) {
+            if (next != DeliveryStatus.ASSIGNED && next != DeliveryStatus.CANCELLED) {
+                throw new BadRequestException("Invalid state transition: Cannot change status from PENDING to " + next + ". Driver must accept delivery first.");
+            }
+        } else if (current == DeliveryStatus.ASSIGNED) {
+            if (next != DeliveryStatus.PICKED_UP && next != DeliveryStatus.CANCELLED) {
+                throw new BadRequestException("Invalid state transition: Cannot change status from ASSIGNED to " + next + ". Expected PICKED_UP.");
+            }
+        } else if (current == DeliveryStatus.PICKED_UP) {
+            if (next != DeliveryStatus.OUT_FOR_DELIVERY && next != DeliveryStatus.DELIVERED && next != DeliveryStatus.CANCELLED) {
+                throw new BadRequestException("Invalid state transition: Cannot change status from PICKED_UP to " + next + ". Expected OUT_FOR_DELIVERY or DELIVERED.");
+            }
+        } else if (current == DeliveryStatus.OUT_FOR_DELIVERY) {
+            if (next != DeliveryStatus.DELIVERED && next != DeliveryStatus.CANCELLED) {
+                throw new BadRequestException("Invalid state transition: Cannot change status from OUT_FOR_DELIVERY to " + next + ". Expected DELIVERED.");
+            }
+        } else if (current == DeliveryStatus.DELIVERED || current == DeliveryStatus.CANCELLED) {
+            throw new BadRequestException("Invalid state transition: Cannot modify delivery in terminal state " + current);
+        }
     }
 
     @Override
@@ -227,7 +368,12 @@ public class DeliveryServiceImpl implements DeliveryService {
             partnerRepository.save(rider);
 
             // Publish event to Kafka
-            kafkaTemplate.send(deliveryAssignedTopic, delivery.getOrderId(), delivery.getOrderId());
+            Map<String, Object> eventPayload = Map.of(
+                    "orderId", delivery.getOrderId(),
+                    "customerEmail", delivery.getCustomerEmail() != null ? delivery.getCustomerEmail() : "",
+                    "deliveryPartnerEmail", rider.getEmail()
+            );
+            kafkaTemplate.send(deliveryAssignedTopic, delivery.getOrderId(), eventPayload);
             log.info("Rider auto-assigned. Sent DeliveryAssigned event to Kafka for order: {}", delivery.getOrderId());
         } else {
             log.warn("No active/available riders found for delivery ID {}. Awaiting manual assignment.", deliveryId);
@@ -235,17 +381,59 @@ public class DeliveryServiceImpl implements DeliveryService {
     }
 
     private DeliveryResponse mapToResponse(Delivery d) {
+        Double driverLat = null;
+        Double driverLng = null;
+        LocalDateTime lastUpdate = null;
+        Double accuracy = null;
+        String driverName = null;
+        String driverPhone = null;
+
+        if (d.getDeliveryPartnerEmail() != null && !d.getDeliveryPartnerEmail().isBlank()) {
+            Optional<DeliveryPartner> partnerOpt = partnerRepository.findFirstByEmail(d.getDeliveryPartnerEmail());
+            if (partnerOpt.isPresent()) {
+                DeliveryPartner p = partnerOpt.get();
+                driverLat = p.getCurrentLatitude();
+                driverLng = p.getCurrentLongitude();
+                lastUpdate = p.getLastLocationUpdate();
+                accuracy = p.getLocationAccuracyMeters();
+                driverName = p.getName();
+                driverPhone = p.getPhone();
+            }
+        }
+
+        String restName = null;
+        String restPhone = null;
+        String restAddress = null;
+
+        if (restaurantServiceClient != null && d.getRestaurantId() != null && !d.getRestaurantId().isBlank()) {
+            com.smarteats.delivery.client.RestaurantDetails rd = restaurantServiceClient.getRestaurantDetails(d.getRestaurantId());
+            if (rd != null) {
+                restName = rd.getName();
+                restPhone = rd.getPhone();
+                restAddress = rd.getAddress();
+            }
+        }
+
         return DeliveryResponse.builder()
                 .id(d.getId())
                 .orderId(d.getOrderId())
                 .restaurantId(d.getRestaurantId())
                 .customerEmail(d.getCustomerEmail())
                 .deliveryPartnerEmail(d.getDeliveryPartnerEmail())
+                .driverName(driverName)
+                .driverPhone(driverPhone)
                 .status(d.getStatus())
                 .restaurantLatitude(d.getRestaurantLatitude())
                 .restaurantLongitude(d.getRestaurantLongitude())
                 .deliveryLatitude(d.getDeliveryLatitude())
                 .deliveryLongitude(d.getDeliveryLongitude())
+                .driverCurrentLatitude(driverLat)
+                .driverCurrentLongitude(driverLng)
+                .driverLastLocationUpdate(lastUpdate)
+                .driverLocationAccuracyMeters(accuracy)
+                .restaurantName(restName)
+                .restaurantPhone(restPhone)
+                .restaurantAddress(restAddress)
                 .build();
     }
 
@@ -254,8 +442,18 @@ public class DeliveryServiceImpl implements DeliveryService {
                 .id(p.getId())
                 .name(p.getName())
                 .email(p.getEmail())
+                .baseAddress(p.getBaseAddress())
+                .city(p.getCity())
+                .state(p.getState())
+                .pincode(p.getPincode())
+                .baseLatitude(p.getBaseLatitude() != 0.0 ? p.getBaseLatitude() : p.getLatitude())
+                .baseLongitude(p.getBaseLongitude() != 0.0 ? p.getBaseLongitude() : p.getLongitude())
                 .latitude(p.getLatitude())
                 .longitude(p.getLongitude())
+                .currentLatitude(p.getCurrentLatitude())
+                .currentLongitude(p.getCurrentLongitude())
+                .lastLocationUpdate(p.getLastLocationUpdate())
+                .locationAccuracyMeters(p.getLocationAccuracyMeters())
                 .active(p.isActive())
                 .available(p.isAvailable())
                 .build();

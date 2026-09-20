@@ -5,6 +5,7 @@ import { orderApi } from '../../api/orderApi';
 import { useAuth } from '../../context/AuthContext';
 import { getCustomerAvailabilityStatus, checkCartItemInventory } from '../../utils/inventoryUtils';
 import { initiateRazorpayCheckout } from '../../utils/razorpayUtils';
+import { cleanTelUri, formatIndianPhone } from '../../utils/phoneUtils';
 
 export default function RestaurantDetailPage({ cart = [], setCart, addToCart, updateCartQty, removeFromCart }) {
   const { restaurantId } = useParams();
@@ -427,9 +428,33 @@ export default function RestaurantDetailPage({ cart = [], setCart, addToCart, up
               <div style={{ fontSize: '0.88rem', color: 'var(--text-sub)' }}>
                 📍 <strong>Location:</strong> {locationText}
               </div>
-              {restaurant.phone && (
+              {cleanTelUri(restaurant.phone) ? (
+                <div style={{ fontSize: '0.88rem', color: 'var(--text-sub)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                  <span>📞 <strong>Phone:</strong> {formatIndianPhone(restaurant.phone)}</span>
+                  <a
+                    href={cleanTelUri(restaurant.phone)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      border: '1px solid rgba(16, 185, 129, 0.35)',
+                      color: 'var(--accent-green)',
+                      padding: '3px 10px',
+                      borderRadius: '8px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title={`Call ${restaurant.name || 'Restaurant'}`}
+                  >
+                    📞 Call Restaurant
+                  </a>
+                </div>
+              ) : (
                 <div style={{ fontSize: '0.88rem', color: 'var(--text-sub)' }}>
-                  📞 <strong>Phone:</strong> {restaurant.phone}
+                  📞 <strong>Phone:</strong> Phone not available
                 </div>
               )}
             </div>

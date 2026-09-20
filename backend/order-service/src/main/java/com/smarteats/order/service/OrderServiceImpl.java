@@ -35,6 +35,7 @@ public class OrderServiceImpl implements OrderService {
     private final com.smarteats.order.client.AuthServiceClient authServiceClient;
     private final com.smarteats.order.client.RestaurantServiceClient restaurantServiceClient;
     private final com.smarteats.order.client.RazorpayClientWrapper razorpayClientWrapper;
+    private final com.smarteats.order.client.DeliveryServiceClient deliveryServiceClient;
 
     @Value("${kafka.topic.order-created:smarteats.order.created}")
     private String orderCreatedTopic;
@@ -49,19 +50,30 @@ public class OrderServiceImpl implements OrderService {
 
     private static final String CART_KEY_PREFIX = "cart:";
 
-    // Constructor injection
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderServiceImpl(OrderRepository orderRepository,
                             RedisTemplate<String, Object> redisTemplate,
                             org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate,
                             com.smarteats.order.client.AuthServiceClient authServiceClient,
                             com.smarteats.order.client.RestaurantServiceClient restaurantServiceClient,
-                            com.smarteats.order.client.RazorpayClientWrapper razorpayClientWrapper) {
+                            com.smarteats.order.client.RazorpayClientWrapper razorpayClientWrapper,
+                            com.smarteats.order.client.DeliveryServiceClient deliveryServiceClient) {
         this.orderRepository = orderRepository;
         this.redisTemplate = redisTemplate;
         this.kafkaTemplate = kafkaTemplate;
         this.authServiceClient = authServiceClient;
         this.restaurantServiceClient = restaurantServiceClient;
         this.razorpayClientWrapper = razorpayClientWrapper;
+        this.deliveryServiceClient = deliveryServiceClient;
+    }
+
+    public OrderServiceImpl(OrderRepository orderRepository,
+                            RedisTemplate<String, Object> redisTemplate,
+                            org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate,
+                            com.smarteats.order.client.AuthServiceClient authServiceClient,
+                            com.smarteats.order.client.RestaurantServiceClient restaurantServiceClient,
+                            com.smarteats.order.client.RazorpayClientWrapper razorpayClientWrapper) {
+        this(orderRepository, redisTemplate, kafkaTemplate, authServiceClient, restaurantServiceClient, razorpayClientWrapper, null);
     }
 
     private String getCartKey(String email) {
@@ -973,11 +985,15 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with ID: " + orderId));
 
         boolean isAdmin = roles != null && (roles.contains("ADMIN") || roles.contains("ROLE_ADMIN"));
-        boolean isOwner = userEmail != null && userEmail.equalsIgnoreCase(order.getCustomerEmail());
+        boolean isCustomerOwner = userEmail != null && userEmail.equalsIgnoreCase(order.getCustomerEmail());
+        boolean isRestaurantOwner = roles != null && roles.contains("RESTAURANT_OWNER") &&
+                restaurantServiceClient.isOwnerOfRestaurant(userEmail, order.getRestaurantId());
+        boolean isDeliveryPartner = roles != null && (roles.contains("DELIVERY_PARTNER") || roles.contains("DRIVER"))
+                && (deliveryServiceClient == null || deliveryServiceClient.isDriverAssignedToOrder(userEmail, orderId));
 
-        if (!isAdmin && !isOwner) {
-            log.warn("Access Denied (IDOR Prevention): User '{}' with roles '{}' attempted to access order '{}' owned by '{}'",
-                    userEmail, roles, orderId, order.getCustomerEmail());
+        if (!isAdmin && !isCustomerOwner && !isRestaurantOwner && !isDeliveryPartner) {
+            log.warn("Access Denied (IDOR Prevention): User '{}' with roles '{}' attempted to access order '{}' owned by customer '{}' / restaurant '{}'",
+                    userEmail, roles, orderId, order.getCustomerEmail(), order.getRestaurantId());
             throw new ForbiddenException("Access Denied: You do not have permission to view this order");
         }
 
@@ -993,8 +1009,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public List<OrderResponse> getOrdersForRestaurant(String restaurantId, String ownerEmail) {
-        // In a real microservice, we might verify with restaurant-service if ownerEmail owns the restaurantId.
-        // For foundation purposes, we retrieve the orders directly.
+        verifyRestaurantOwnership(ownerEmail, restaurantId, null);
         return orderRepository.findByRestaurantId(restaurantId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
@@ -1009,7 +1024,11 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public List<OrderResponse> getMyRestaurantOrders(String ownerEmail) {
         log.info("Fetching orders for restaurant owner {}", ownerEmail);
-        return orderRepository.findAll().stream()
+        String restaurantId = restaurantServiceClient.getRestaurantIdByOwnerEmail(ownerEmail);
+        if (restaurantId == null || restaurantId.isBlank()) {
+            throw new ResourceNotFoundException("No restaurant found for owner: " + ownerEmail);
+        }
+        return orderRepository.findByRestaurantId(restaurantId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -1018,32 +1037,69 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse getMyRestaurantOrderById(String orderId, String ownerEmail) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with ID: " + orderId));
+        verifyRestaurantOwnership(ownerEmail, order.getRestaurantId(), null);
         return mapToResponse(order);
     }
 
     @Override
     public OrderResponse acceptOrder(String orderId, String ownerEmail) {
-        return transitionOrderStatus(orderId, OrderStatus.ACCEPTED, ownerEmail);
+        return transitionOrderStatus(orderId, OrderStatus.ACCEPTED, ownerEmail, "RESTAURANT_OWNER");
     }
 
     @Override
     public OrderResponse rejectOrder(String orderId, String ownerEmail) {
-        return transitionOrderStatus(orderId, OrderStatus.REJECTED, ownerEmail);
+        return transitionOrderStatus(orderId, OrderStatus.REJECTED, ownerEmail, "RESTAURANT_OWNER");
     }
 
     @Override
     public OrderResponse preparingOrder(String orderId, String ownerEmail) {
-        return transitionOrderStatus(orderId, OrderStatus.PREPARING, ownerEmail);
+        return transitionOrderStatus(orderId, OrderStatus.PREPARING, ownerEmail, "RESTAURANT_OWNER");
     }
 
     @Override
     public OrderResponse readyOrder(String orderId, String ownerEmail) {
-        return transitionOrderStatus(orderId, OrderStatus.READY, ownerEmail);
+        return transitionOrderStatus(orderId, OrderStatus.READY, ownerEmail, "RESTAURANT_OWNER");
     }
 
-    private OrderResponse transitionOrderStatus(String orderId, OrderStatus targetStatus, String ownerEmail) {
+    private void verifyRestaurantOwnership(String ownerEmail, String restaurantId, String roles) {
+        if (roles != null && (roles.contains("ADMIN") || roles.contains("ROLE_ADMIN"))) {
+            return;
+        }
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            throw new UnauthorizedException("Authentication required: Missing user identity");
+        }
+        boolean isOwner = restaurantServiceClient.isOwnerOfRestaurant(ownerEmail, restaurantId);
+        if (!isOwner) {
+            log.warn("Access Denied (Cross-Restaurant IDOR Prevention): Owner '{}' with roles '{}' attempted to access/modify order belonging to restaurant '{}'",
+                    ownerEmail, roles, restaurantId);
+            throw new ForbiddenException("Access Denied: You do not have permission to access or modify orders for this restaurant");
+        }
+    }
+
+    private OrderResponse transitionOrderStatus(String orderId, OrderStatus targetStatus, String ownerEmail, String roles) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with ID: " + orderId));
+
+        boolean isAdmin = roles != null && (roles.contains("ADMIN") || roles.contains("ROLE_ADMIN"));
+        boolean isRestaurantOwner = ownerEmail != null && !ownerEmail.isBlank() &&
+                restaurantServiceClient.isOwnerOfRestaurant(ownerEmail, order.getRestaurantId());
+        boolean isCustomerOwner = ownerEmail != null && !ownerEmail.isBlank() &&
+                ownerEmail.equalsIgnoreCase(order.getCustomerEmail());
+
+        if (!isAdmin && !isRestaurantOwner) {
+            if (isCustomerOwner) {
+                if (targetStatus != OrderStatus.CANCELLED) {
+                    throw new ForbiddenException("Access Denied: Customers are only permitted to cancel active orders");
+                }
+                if (order.getStatus() != OrderStatus.CREATED && order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+                    throw new BadRequestException("Cannot cancel order: Order is in status " + order.getStatus());
+                }
+            } else {
+                log.warn("Access Denied (Order Mutation IDOR Prevention): User '{}' with roles '{}' attempted to modify status of order '{}' owned by customer '{}' / restaurant '{}'",
+                        ownerEmail, roles, orderId, order.getCustomerEmail(), order.getRestaurantId());
+                throw new ForbiddenException("Access Denied: You do not have permission to modify this order");
+            }
+        }
 
         OrderStatus currentStatus = order.getStatus();
         validateStateTransition(currentStatus, targetStatus);
@@ -1139,7 +1195,7 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("Invalid Order Status: " + status);
         }
 
-        return transitionOrderStatus(orderId, newStatus, userEmail);
+        return transitionOrderStatus(orderId, newStatus, userEmail, roles);
     }
 
     private OrderResponse mapToResponse(Order order) {

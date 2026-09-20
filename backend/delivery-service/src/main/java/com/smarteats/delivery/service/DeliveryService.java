@@ -9,7 +9,10 @@ import java.util.List;
 public interface DeliveryService {
     DeliveryPartnerResponse registerPartner(DeliveryPartnerRegisterRequest request);
     DeliveryPartnerResponse updatePartnerAvailability(String email, boolean active, boolean available);
+    DeliveryPartnerResponse updatePartnerLocation(String email, Double latitude, Double longitude, Double accuracy);
     DeliveryResponse getDeliveryById(String id);
+    DeliveryResponse getDeliveryById(String id, String userEmail, String roles);
+    DeliveryResponse getDeliveryByOrderId(String orderId, String userEmail, String roles);
     List<DeliveryResponse> getPartnerDeliveries(String partnerEmail);
     DeliveryResponse acceptDelivery(String deliveryId, String partnerEmail);
     DeliveryResponse updateDeliveryStatus(String deliveryId, String status, String partnerEmail);

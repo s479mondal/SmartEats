@@ -52,6 +52,12 @@ public class UserDto {
     private String vehicleType;
     private String vehicleNumber;
     private String verificationInfo;
+    private String driverBaseAddress;
+    private String driverCity;
+    private String driverState;
+    private String driverPincode;
+    private Double driverBaseLatitude;
+    private Double driverBaseLongitude;
     private String ngoName;
     private String contactPerson;
     private String ngoAddress;

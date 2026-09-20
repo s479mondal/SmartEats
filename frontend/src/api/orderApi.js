@@ -246,6 +246,24 @@ export const deliveryApi = {
     return response.data?.data || response.data || [];
   },
 
+  getDeliveryByOrderId: async (orderId) => {
+    try {
+      const response = await apiClient.get(`/api/deliveries/order/${encodeURIComponent(orderId)}`);
+      return response.data?.data || response.data;
+    } catch (err) {
+      if (err.response?.status === 404) {
+        // Delivery not yet created by restaurant acceptance (expected before ACCEPTED state)
+        return null;
+      }
+      throw err;
+    }
+  },
+
+  getDeliveryById: async (deliveryId) => {
+    const response = await apiClient.get(`/api/deliveries/${encodeURIComponent(deliveryId)}`);
+    return response.data?.data || response.data;
+  },
+
   acceptDelivery: async (deliveryId) => {
     const response = await apiClient.put(`/api/deliveries/${deliveryId}/accept`);
     return response.data?.data || response.data;
@@ -258,6 +276,11 @@ export const deliveryApi = {
 
   updatePartnerAvailability: async (active, available) => {
     const response = await apiClient.put(`/api/deliveries/partner/availability?active=${active}&available=${available}`);
+    return response.data?.data || response.data;
+  },
+
+  updatePartnerLocation: async (locationPayload) => {
+    const response = await apiClient.post('/api/deliveries/partner/location', locationPayload);
     return response.data?.data || response.data;
   }
 };

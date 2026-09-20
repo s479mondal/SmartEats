@@ -37,8 +37,29 @@ public class OrderEventListener {
                 actualPayload = record.value() != null ? record.value() : record.key();
             }
 
-            // Extract and sanitize order ID (strip any quotation marks added by JSON serialization)
-            String orderId = String.valueOf(actualPayload).replaceAll("^\"|\"$", "").trim();
+            String orderId = null;
+            if (actualPayload instanceof java.util.Map map) {
+                orderId = String.valueOf(map.get("orderId"));
+            } else {
+                String strPayload = String.valueOf(actualPayload).trim();
+                orderId = strPayload;
+                if (strPayload.startsWith("{")) {
+                    try {
+                        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                        java.util.Map map = mapper.readValue(strPayload, java.util.Map.class);
+                        orderId = String.valueOf(map.get("orderId"));
+                    } catch (Exception ignore) {
+                        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("orderId=([^,}]+)").matcher(strPayload);
+                        if (matcher.find()) {
+                            orderId = matcher.group(1).trim();
+                        }
+                    }
+                }
+            }
+            if (orderId != null) {
+                orderId = orderId.replaceAll("^\"|\"$", "").trim();
+            }
+
             if (orderId.isBlank()) {
                 log.warn("Received blank orderId for OrderDelivered event in order-service");
                 return;
@@ -56,6 +77,14 @@ public class OrderEventListener {
 
                 OrderStatus previousStatus = order.getStatus();
                 order.setStatus(OrderStatus.DELIVERED);
+
+                // COD Payment Status Update: Mark payment as PAID upon delivery cash collection
+                if ("COD".equalsIgnoreCase(order.getPaymentMethod()) && order.getPaymentStatus() == com.smarteats.common.enums.PaymentStatus.PENDING) {
+                    order.setPaymentStatus(com.smarteats.common.enums.PaymentStatus.PAID);
+                    order.setPaymentTime(java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")));
+                    log.info("COD Order {} payment status marked PAID upon successful delivery cash collection", orderId);
+                }
+
                 orderRepository.save(order);
                 log.info("Successfully synchronized Order {} status from {} to DELIVERED in MongoDB Atlas", orderId, previousStatus);
             } else {

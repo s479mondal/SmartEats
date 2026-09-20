@@ -10,6 +10,7 @@ import CustomerPortal from '../components/CustomerPortal';
 import RescueOffersPage from '../pages/customer/RescueOffersPage';
 import PreferencesPage from '../pages/customer/PreferencesPage';
 import RestaurantDetailPage from '../pages/customer/RestaurantDetailPage';
+import OrderTrackingPage from '../pages/customer/OrderTrackingPage';
 import RestaurantRdssDashboard from '../components/RestaurantRdssDashboard';
 import DriverPortal from '../components/DriverPortal';
 import NgoDashboard from '../pages/ngo/NgoDashboard';
@@ -133,6 +134,8 @@ export default function AppRoutes() {
           <Route path="/customer/dashboard" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} />} />
           <Route path="/customer/restaurants" element={<CustomerPortal cart={cart} setCart={setCart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} />} />
           <Route path="/customer/restaurants/:restaurantId" element={<RestaurantDetailPage cart={cart} setCart={setCart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} />} />
+          <Route path="/customer/orders/:orderId" element={<OrderTrackingPage />} />
+          <Route path="/customer/track/:orderId" element={<OrderTrackingPage />} />
           <Route path="/customer/rescue" element={<RescueOffersPage addToCart={addToCart} />} />
           <Route path="/customer/preferences" element={<PreferencesPage />} />
 

@@ -36,10 +36,18 @@ public class NotificationEventListener {
     }
 
     @KafkaListener(topics = "${kafka.topic.delivery-assigned:smarteats.delivery.assigned}", groupId = "notification-group")
-    public void handleDeliveryAssignedEvent(String orderId) {
-        log.info("Received DeliveryAssigned event from Kafka in notification-service for order: {}", orderId);
+    public void handleDeliveryAssignedEvent(String payload) {
+        log.info("Received DeliveryAssigned event from Kafka in notification-service: {}", payload);
         try {
+            String orderId = payload;
             String customerEmail = "customer@smarteats.com";
+            if (payload != null && payload.trim().startsWith("{")) {
+                Map<String, Object> event = objectMapper.readValue(payload, Map.class);
+                orderId = String.valueOf(event.get("orderId"));
+                if (event.get("customerEmail") != null && !String.valueOf(event.get("customerEmail")).isBlank()) {
+                    customerEmail = String.valueOf(event.get("customerEmail"));
+                }
+            }
             String msg = String.format("A delivery partner has been assigned to pick up your order #%s.", orderId);
             notificationService.sendNotification(customerEmail, msg, orderId, "DELIVERY_ASSIGNED");
         } catch (Exception e) {
@@ -48,10 +56,18 @@ public class NotificationEventListener {
     }
 
     @KafkaListener(topics = "${kafka.topic.order-delivered:smarteats.order.delivered}", groupId = "notification-group")
-    public void handleOrderDeliveredEvent(String orderId) {
-        log.info("Received OrderDelivered event from Kafka in notification-service for order: {}", orderId);
+    public void handleOrderDeliveredEvent(String payload) {
+        log.info("Received OrderDelivered event from Kafka in notification-service: {}", payload);
         try {
+            String orderId = payload;
             String customerEmail = "customer@smarteats.com";
+            if (payload != null && payload.trim().startsWith("{")) {
+                Map<String, Object> event = objectMapper.readValue(payload, Map.class);
+                orderId = String.valueOf(event.get("orderId"));
+                if (event.get("customerEmail") != null && !String.valueOf(event.get("customerEmail")).isBlank()) {
+                    customerEmail = String.valueOf(event.get("customerEmail"));
+                }
+            }
             String msg = String.format("Yum! Your order #%s has been successfully delivered. Enjoy your meal!", orderId);
             notificationService.sendNotification(customerEmail, msg, orderId, "ORDER_DELIVERED");
         } catch (Exception e) {

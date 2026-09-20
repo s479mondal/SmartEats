@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { restaurantOwnerApi, rdssApi } from '../api/orderApi';
+import { restaurantOwnerApi, rdssApi, deliveryApi } from '../api/orderApi';
 import { useAuth } from '../context/AuthContext';
+import { cleanTelUri, formatIndianPhone } from '../utils/phoneUtils';
 
 const normalizeToTimeInputValue = (timeStr, defaultVal = '10:00') => {
   if (!timeStr) return defaultVal;
@@ -69,6 +70,7 @@ export default function RestaurantRdssDashboard() {
 
   // Orders State
   const [orders, setOrders] = useState([]);
+  const [deliveriesByOrderId, setDeliveriesByOrderId] = useState({});
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [orderActionError, setOrderActionError] = useState('');
 
@@ -157,7 +159,27 @@ export default function RestaurantRdssDashboard() {
     setOrdersLoading(true);
     try {
       const data = await restaurantOwnerApi.getMyOrders();
-      setOrders(data);
+      const orderList = Array.isArray(data) ? data : [];
+      setOrders(orderList);
+
+      // Asynchronously fetch delivery details for non-cancelled active orders
+      const activeOrders = orderList.filter(o => o.status !== 'CANCELLED' && o.status !== 'REJECTED');
+      if (activeOrders.length > 0) {
+        const deliveryPromises = activeOrders.map(async (ord) => {
+          try {
+            const delivery = await deliveryApi.getDeliveryByOrderId(ord.id);
+            return { orderId: ord.id, delivery };
+          } catch {
+            return { orderId: ord.id, delivery: null };
+          }
+        });
+        const results = await Promise.all(deliveryPromises);
+        const map = {};
+        results.forEach(r => {
+          if (r.delivery) map[r.orderId] = r.delivery;
+        });
+        setDeliveriesByOrderId(prev => ({ ...prev, ...map }));
+      }
     } catch (err) {
       console.warn('Could not fetch orders:', err);
     } finally {
@@ -1047,6 +1069,53 @@ export default function RestaurantRdssDashboard() {
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)', marginTop: '6px' }}>
                       Items: {ord.items?.map(i => `${i.name} (x${i.quantity})`).join(', ') || 'N/A'}
                     </div>
+
+                    {/* Assigned Driver & Calling Info (Step 8.4B) */}
+                    {(() => {
+                      const delivery = deliveriesByOrderId[ord.id];
+                      const hasAssignedDriver = delivery && (delivery.driverPhone || delivery.deliveryPartnerEmail);
+                      if (hasAssignedDriver) {
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.82rem', color: '#00f2fe', fontWeight: 600 }}>
+                              🛵 Driver: {delivery.driverName || delivery.deliveryPartnerEmail}
+                            </span>
+                            {cleanTelUri(delivery.driverPhone) ? (
+                              <a
+                                href={cleanTelUri(delivery.driverPhone)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  background: 'rgba(34, 197, 94, 0.15)',
+                                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                                  color: '#22c55e',
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700,
+                                  textDecoration: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                title={`Call driver at ${formatIndianPhone(delivery.driverPhone)}`}
+                              >
+                                📞 Call Driver
+                              </a>
+                            ) : (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-sub)' }}>
+                                {delivery.driverPhone ? formatIndianPhone(delivery.driverPhone) : 'Driver phone not available'}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)', marginTop: '4px' }}>
+                            🛵 Driver: <span style={{ color: '#94a3b8' }}>Not assigned</span>
+                          </div>
+                        );
+                      }
+                    })()}
                   </div>
 
                   {/* ORDER STATE MACHINE ACTION BUTTONS */}

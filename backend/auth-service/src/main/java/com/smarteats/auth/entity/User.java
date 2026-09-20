@@ -80,6 +80,12 @@ public class User {
     private String vehicleType;
     private String vehicleNumber;
     private String verificationInfo; // Driving license / Govt ID
+    private String driverBaseAddress;
+    private String driverCity;
+    private String driverState;
+    private String driverPincode;
+    private Double driverBaseLatitude;
+    private Double driverBaseLongitude;
 
     // NGO Specific Fields
     private String ngoName;
