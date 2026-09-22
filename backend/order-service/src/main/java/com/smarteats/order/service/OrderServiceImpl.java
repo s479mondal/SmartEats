@@ -12,6 +12,7 @@ import com.smarteats.order.dto.OrderResponse;
 import com.smarteats.order.dto.PaymentOrderResponse;
 import com.smarteats.order.dto.PaymentVerifyRequest;
 import com.smarteats.order.dto.PaymentVerifyResponse;
+import com.smarteats.order.dto.CartSyncRequest;
 import com.smarteats.order.entity.CartItem;
 import com.smarteats.order.entity.Order;
 import com.smarteats.order.entity.OrderStatus;
@@ -142,23 +143,50 @@ public class OrderServiceImpl implements OrderService {
         log.info("Cart cleared in Redis for user {}", userEmail);
     }
 
+    private void syncCartIfProvided(String userEmail, CartSyncRequest cartRequest) {
+        if (cartRequest != null && cartRequest.getItems() != null && !cartRequest.getItems().isEmpty()) {
+            if (cartRequest.getRestaurantId() == null || cartRequest.getRestaurantId().isBlank()) {
+                throw new BadRequestException("Restaurant ID is required for cart items");
+            }
+            CartDto newCart = CartDto.builder()
+                    .userEmail(userEmail)
+                    .restaurantId(cartRequest.getRestaurantId())
+                    .items(cartRequest.getItems())
+                    .build();
+            redisTemplate.opsForValue().set(getCartKey(userEmail), newCart);
+            log.info("Synchronized {} items for restaurant {} into Redis cart for {}",
+                    cartRequest.getItems().size(), cartRequest.getRestaurantId(), userEmail);
+        }
+    }
+
     @Override
     public OrderResponse placeOrder(String userEmail) {
-        return placeCodOrder(userEmail, null);
+        return placeCodOrder(userEmail, null, null);
     }
 
     @Override
     public OrderResponse placeOrder(String userEmail, String idempotencyKey) {
-        return placeCodOrder(userEmail, idempotencyKey);
+        return placeCodOrder(userEmail, idempotencyKey, null);
+    }
+
+    @Override
+    public OrderResponse placeOrder(String userEmail, String idempotencyKey, CartSyncRequest cartRequest) {
+        return placeCodOrder(userEmail, idempotencyKey, cartRequest);
     }
 
     @Override
     public OrderResponse placeCodOrder(String userEmail) {
-        return placeCodOrder(userEmail, null);
+        return placeCodOrder(userEmail, null, null);
     }
 
     @Override
     public OrderResponse placeCodOrder(String userEmail, String idempotencyKey) {
+        return placeCodOrder(userEmail, idempotencyKey, null);
+    }
+
+    @Override
+    public OrderResponse placeCodOrder(String userEmail, String idempotencyKey, CartSyncRequest cartRequest) {
+        syncCartIfProvided(userEmail, cartRequest);
         // 1. Idempotency lookup if key is provided
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             Order existingOrder = orderRepository.findFirstByIdempotencyKey(idempotencyKey).orElse(null);
@@ -280,11 +308,17 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public PaymentOrderResponse createPaymentOrder(String userEmail) {
-        return createPaymentOrder(userEmail, null);
+        return createPaymentOrder(userEmail, null, null);
     }
 
     @Override
     public PaymentOrderResponse createPaymentOrder(String userEmail, String idempotencyKey) {
+        return createPaymentOrder(userEmail, idempotencyKey, null);
+    }
+
+    @Override
+    public PaymentOrderResponse createPaymentOrder(String userEmail, String idempotencyKey, CartSyncRequest cartRequest) {
+        syncCartIfProvided(userEmail, cartRequest);
         // 1. Idempotency lookup if key is provided
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             Order existingOrder = orderRepository.findFirstByIdempotencyKey(idempotencyKey).orElse(null);
@@ -1113,7 +1147,29 @@ public class OrderServiceImpl implements OrderService {
             // Retrieve authoritative restaurant coordinates from restaurant-service
             com.smarteats.order.client.RestaurantCoordinates restCoords = restaurantServiceClient.getRestaurantCoordinates(savedOrder.getRestaurantId());
 
-            // Validate that order has valid delivery coordinates
+            // Validate that order has valid delivery coordinates, recovering fallback if missing
+            if (savedOrder.getDeliveryLatitude() == null || savedOrder.getDeliveryLongitude() == null ||
+                    (savedOrder.getDeliveryLatitude() == 0.0 && savedOrder.getDeliveryLongitude() == 0.0)) {
+                try {
+                    com.smarteats.order.client.CustomerCoordinates customerCoords = authServiceClient.getCustomerCoordinates(savedOrder.getCustomerEmail());
+                    if (customerCoords != null && customerCoords.getLatitude() != null && customerCoords.getLongitude() != null &&
+                            (customerCoords.getLatitude() != 0.0 || customerCoords.getLongitude() != 0.0)) {
+                        savedOrder.setDeliveryLatitude(customerCoords.getLatitude());
+                        savedOrder.setDeliveryLongitude(customerCoords.getLongitude());
+                        savedOrder = orderRepository.save(savedOrder);
+                        log.info("Populated delivery coordinates from customer profile for order {}: lat={}, lon={}",
+                                orderId, customerCoords.getLatitude(), customerCoords.getLongitude());
+                    } else if (restCoords != null && restCoords.getLatitude() != null && restCoords.getLongitude() != null) {
+                        savedOrder.setDeliveryLatitude(restCoords.getLatitude());
+                        savedOrder.setDeliveryLongitude(restCoords.getLongitude());
+                        savedOrder = orderRepository.save(savedOrder);
+                        log.warn("Customer coordinates unset; defaulted delivery coordinates to restaurant location for order {}", orderId);
+                    }
+                } catch (Exception coordEx) {
+                    log.warn("Fallback coordinate lookup encountered: {}", coordEx.getMessage());
+                }
+            }
+
             if (savedOrder.getDeliveryLatitude() == null || savedOrder.getDeliveryLongitude() == null ||
                     (savedOrder.getDeliveryLatitude() == 0.0 && savedOrder.getDeliveryLongitude() == 0.0)) {
                 log.error("Order {} cannot be accepted because delivery coordinates are missing", orderId);
@@ -1136,8 +1192,26 @@ public class OrderServiceImpl implements OrderService {
                     orderAcceptedTopic, orderId, restCoords.getLatitude(), restCoords.getLongitude(),
                     savedOrder.getDeliveryLatitude(), savedOrder.getDeliveryLongitude());
         } else if (targetStatus == OrderStatus.READY) {
-            kafkaTemplate.send(orderReadyTopic, orderId, mapToResponse(savedOrder));
-            log.info("Published OrderReady event to Kafka topic '{}' for order ID: {}", orderReadyTopic, orderId);
+            String restName = null;
+            try {
+                restName = restaurantServiceClient.getRestaurantName(savedOrder.getRestaurantId());
+            } catch (Exception e) {
+                log.warn("Could not resolve restaurant name for ready order {}: {}", orderId, e.getMessage());
+            }
+
+            com.smarteats.common.event.OrderReadyEvent readyEvent = com.smarteats.common.event.OrderReadyEvent.builder()
+                    .orderId(savedOrder.getId())
+                    .id(savedOrder.getId())
+                    .restaurantId(savedOrder.getRestaurantId())
+                    .restaurantName(restName != null ? restName : "")
+                    .customerEmail(savedOrder.getCustomerEmail())
+                    .totalAmount(savedOrder.getTotalAmount())
+                    .status("READY")
+                    .timestamp(java.time.LocalDateTime.now().toString())
+                    .build();
+
+            kafkaTemplate.send(orderReadyTopic, orderId, readyEvent);
+            log.info("Published OrderReady event to Kafka topic '{}' for order ID: {} (Restaurant: {})", orderReadyTopic, orderId, restName);
         } else if (targetStatus == OrderStatus.REJECTED || targetStatus == OrderStatus.CANCELLED) {
             // Restore inventory portions for rejected / cancelled orders
             if (savedOrder.getItems() != null && !savedOrder.getItems().isEmpty()) {

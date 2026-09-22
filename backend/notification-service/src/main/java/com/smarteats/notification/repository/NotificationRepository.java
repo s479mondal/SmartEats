@@ -10,4 +10,5 @@ import java.util.List;
 public interface NotificationRepository extends MongoRepository<Notification, String> {
     List<Notification> findByRecipientEmailOrderByCreatedAtDesc(String recipientEmail);
     List<Notification> findByRecipientEmailAndRead(String recipientEmail, boolean read);
+    boolean existsByRecipientEmailAndOrderIdAndType(String recipientEmail, String orderId, String type);
 }

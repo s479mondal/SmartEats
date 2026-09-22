@@ -39,6 +39,16 @@ const deriveTitle = (type) => {
       return 'Order Delivered';
     case 'RESTAURANT_ACCEPTED':
       return 'Order Accepted by Kitchen';
+    case 'ORDER_READY':
+      return 'Order Ready for Pickup';
+    case 'DELIVERY_OFFER':
+      return '⚡ New Delivery Offer';
+    case 'OFFER_CONFIRMED':
+      return '✅ Assignment Confirmed';
+    case 'OFFER_EXPIRED':
+      return 'Offer No Longer Available';
+    case 'DRIVER_ASSIGNED':
+      return 'Delivery Partner Assigned';
     default:
       return type ? type.replace(/_/g, ' ') : 'SmartEats Update';
   }

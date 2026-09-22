@@ -38,6 +38,9 @@ export const loadRazorpayScript = () => {
 export const initiateRazorpayCheckout = async ({
   user,
   idempotencyKey,
+  cart,
+  restaurantId,
+  cartPayload,
   onSuccess,
   onFailure,
   onDismiss,
@@ -57,8 +60,23 @@ export const initiateRazorpayCheckout = async ({
       return;
     }
 
-    // 2. Call backend create-payment-order API with Idempotency-Key
-    const paymentOrder = await orderApi.createPaymentOrder(checkoutKey);
+    // Prepare cart payload if provided
+    let effectivePayload = cartPayload || null;
+    if (!effectivePayload && cart && cart.length > 0) {
+      const targetRestaurantId = restaurantId || cart[0]?.restaurantId || '';
+      effectivePayload = {
+        restaurantId: targetRestaurantId,
+        items: cart.map(item => ({
+          menuItemId: item.menuItemId || item.id || item._id,
+          name: item.name || 'Food Item',
+          price: Number(item.price) || 0,
+          quantity: item.qty || item.quantity || 1
+        }))
+      };
+    }
+
+    // 2. Call backend create-payment-order API with Idempotency-Key and cart payload
+    const paymentOrder = await orderApi.createPaymentOrder(checkoutKey, effectivePayload);
     if (!paymentOrder || !paymentOrder.razorpayOrderId) {
       onLoadingChange?.(false);
       onFailure?.('Unable to initialize payment session with the server. Please try again.');
@@ -138,14 +156,15 @@ export const initiateRazorpayCheckout = async ({
   } catch (err) {
     onLoadingChange?.(false);
     const serverMsg = err.response?.data?.message || err.message || '';
-    if (serverMsg.includes('quantity') || serverMsg.includes('inventory') || serverMsg.includes('available') || serverMsg.includes('portion') || err.response?.status === 409) {
-      onFailure?.('⚠️ Portion Availability Notice:\n\nSome items in your cart are no longer available in the requested portion quantity. Please review your cart.');
-    } else if (serverMsg.includes('closed')) {
+    const lowerMsg = serverMsg.toLowerCase();
+    if (lowerMsg.includes('closed')) {
       onFailure?.('⚠️ Restaurant is currently closed for orders.');
-    } else if (serverMsg.includes('empty')) {
+    } else if (lowerMsg.includes('quantity') || lowerMsg.includes('inventory') || lowerMsg.includes('available') || lowerMsg.includes('portion') || err.response?.status === 409) {
+      onFailure?.('⚠️ Portion Availability Notice:\n\nSome items in your cart are no longer available in the requested portion quantity. Please review your cart.');
+    } else if (lowerMsg.includes('empty')) {
       onFailure?.('Shopping cart is empty. Please add items before checking out.');
     } else {
-      onFailure?.(`Unable to start checkout: ${serverMsg || 'Please try again later.'}`);
+      onFailure?.(serverMsg ? `Unable to start checkout: ${serverMsg}` : 'Unable to start checkout. Please try again later.');
     }
   }
 };

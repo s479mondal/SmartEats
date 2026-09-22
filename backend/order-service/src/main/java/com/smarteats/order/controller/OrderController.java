@@ -10,6 +10,7 @@ import com.smarteats.order.dto.PaymentOrderResponse;
 import com.smarteats.order.dto.PaymentVerifyRequest;
 import com.smarteats.order.dto.PaymentVerifyResponse;
 import com.smarteats.order.dto.WebhookResponse;
+import com.smarteats.order.dto.CartSyncRequest;
 import com.smarteats.order.service.OrderService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -69,9 +70,10 @@ public class OrderController {
     @PostMapping("/cod")
     public ResponseEntity<ApiResponse<OrderResponse>> placeCodOrder(
             @RequestHeader("X-User-Email") String email,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) CartSyncRequest cartRequest) {
         log.info("User {} initiating Cash on Delivery (COD) order placement (idempotencyKey: {})", email, idempotencyKey);
-        OrderResponse order = orderService.placeCodOrder(email, idempotencyKey);
+        OrderResponse order = orderService.placeCodOrder(email, idempotencyKey, cartRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(order, "Order placed successfully"));
     }
@@ -79,9 +81,10 @@ public class OrderController {
     @PostMapping("/checkout")
     public ResponseEntity<ApiResponse<OrderResponse>> checkout(
             @RequestHeader("X-User-Email") String email,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) CartSyncRequest cartRequest) {
         log.info("User {} initiating order checkout (idempotencyKey: {})", email, idempotencyKey);
-        OrderResponse order = orderService.placeOrder(email, idempotencyKey);
+        OrderResponse order = orderService.placeOrder(email, idempotencyKey, cartRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(order, "Order placed successfully"));
     }
@@ -89,9 +92,10 @@ public class OrderController {
     @PostMapping("/payment/create-order")
     public ResponseEntity<ApiResponse<PaymentOrderResponse>> createPaymentOrder(
             @RequestHeader("X-User-Email") String email,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) CartSyncRequest cartRequest) {
         log.info("User {} initiating Razorpay payment order creation (idempotencyKey: {})", email, idempotencyKey);
-        PaymentOrderResponse response = orderService.createPaymentOrder(email, idempotencyKey);
+        PaymentOrderResponse response = orderService.createPaymentOrder(email, idempotencyKey, cartRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "Payment order created successfully"));
     }
@@ -169,7 +173,7 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(order));
     }
 
-    @PatchMapping("/my/orders/{orderId}/accept")
+    @RequestMapping(value = "/my/orders/{orderId}/accept", method = {RequestMethod.PATCH, RequestMethod.PUT, RequestMethod.POST})
     public ResponseEntity<ApiResponse<OrderResponse>> acceptOrder(
             @PathVariable String orderId,
             @RequestHeader(value = "X-User-Email", required = false) String email,
@@ -179,7 +183,7 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(order, "Order accepted successfully"));
     }
 
-    @PatchMapping("/my/orders/{orderId}/reject")
+    @RequestMapping(value = "/my/orders/{orderId}/reject", method = {RequestMethod.PATCH, RequestMethod.PUT, RequestMethod.POST})
     public ResponseEntity<ApiResponse<OrderResponse>> rejectOrder(
             @PathVariable String orderId,
             @RequestHeader(value = "X-User-Email", required = false) String email,
@@ -189,7 +193,7 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(order, "Order rejected"));
     }
 
-    @PatchMapping("/my/orders/{orderId}/preparing")
+    @RequestMapping(value = "/my/orders/{orderId}/preparing", method = {RequestMethod.PATCH, RequestMethod.PUT, RequestMethod.POST})
     public ResponseEntity<ApiResponse<OrderResponse>> preparingOrder(
             @PathVariable String orderId,
             @RequestHeader(value = "X-User-Email", required = false) String email,
@@ -199,7 +203,7 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(order, "Order preparation started"));
     }
 
-    @PatchMapping("/my/orders/{orderId}/ready")
+    @RequestMapping(value = "/my/orders/{orderId}/ready", method = {RequestMethod.PATCH, RequestMethod.PUT, RequestMethod.POST})
     public ResponseEntity<ApiResponse<OrderResponse>> readyOrder(
             @PathVariable String orderId,
             @RequestHeader(value = "X-User-Email", required = false) String email,

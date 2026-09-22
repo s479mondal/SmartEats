@@ -168,6 +168,17 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, updateCa
   const handleCheckout = async () => {
     if (!cart || cart.length === 0 || hasStaleCartIssues || isCheckingOut) return;
 
+    const effectiveRestaurantId = cart[0]?.restaurantId || '';
+    const cartPayload = {
+      restaurantId: effectiveRestaurantId,
+      items: cart.map((i) => ({
+        menuItemId: i.menuItemId || i.id || i._id,
+        name: i.name || 'Food Item',
+        price: Number(i.price) || 0,
+        quantity: i.qty || i.quantity || 1
+      }))
+    };
+
     // Generate cryptographically unique idempotency key for this checkout attempt
     const checkoutKey = (typeof crypto !== 'undefined' && crypto.randomUUID) 
       ? crypto.randomUUID() 
@@ -177,7 +188,7 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, updateCa
       setIsCheckingOut(true);
       setCheckoutStatusMsg('Placing Cash on Delivery Order...');
       try {
-        const orderResponse = await orderApi.placeCodOrder(checkoutKey);
+        const orderResponse = await orderApi.placeCodOrder(checkoutKey, cartPayload);
         const confirmedOrder = {
           id: orderResponse.id,
           status: orderResponse.status || 'CREATED',
@@ -210,6 +221,9 @@ export default function CustomerPortal({ cart = [], setCart, addToCart, updateCa
     await initiateRazorpayCheckout({
       user,
       idempotencyKey: checkoutKey,
+      cart,
+      restaurantId: effectiveRestaurantId,
+      cartPayload,
       onLoadingChange: (loading, msg) => {
         setIsCheckingOut(loading);
         setCheckoutStatusMsg(msg || '');

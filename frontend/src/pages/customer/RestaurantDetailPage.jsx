@@ -128,7 +128,17 @@ export default function RestaurantDetailPage({ cart = [], setCart, addToCart, up
     return matchesSearch && matchesCategory;
   });
 
+  const isOpen = restaurant
+    ? (restaurant.open !== undefined
+        ? Boolean(restaurant.open)
+        : (restaurant.status?.toLowerCase() === 'open'))
+    : true;
+
   const handleAddToCart = (item) => {
+    if (!isOpen) {
+      alert('⚠️ This restaurant is currently closed for orders.');
+      return;
+    }
     const itemId = item.id || item._id;
     if (addToCart) {
       // Attach restaurant info for order context
@@ -153,6 +163,21 @@ export default function RestaurantDetailPage({ cart = [], setCart, addToCart, up
   const handleCheckout = async () => {
     if (!cart || cart.length === 0 || orderSubmitting || hasStaleCartIssues) return;
 
+    if (!isOpen) {
+      alert('⚠️ This restaurant is currently closed for orders. Please check back during operating hours.');
+      return;
+    }
+
+    const cartPayload = {
+      restaurantId: restaurantId,
+      items: cart.map((i) => ({
+        menuItemId: i.menuItemId || i.id || i._id,
+        name: i.name || 'Food Item',
+        price: Number(i.price) || 0,
+        quantity: i.qty || i.quantity || 1
+      }))
+    };
+
     // Generate cryptographically unique idempotency key for this checkout attempt
     const checkoutKey = (typeof crypto !== 'undefined' && crypto.randomUUID) 
       ? crypto.randomUUID() 
@@ -162,7 +187,7 @@ export default function RestaurantDetailPage({ cart = [], setCart, addToCart, up
       setOrderSubmitting(true);
       setCheckoutStatusMsg('Placing Cash on Delivery Order...');
       try {
-        const orderResponse = await orderApi.placeCodOrder(checkoutKey);
+        const orderResponse = await orderApi.placeCodOrder(checkoutKey, cartPayload);
         const newOrder = {
           id: orderResponse.id,
           status: orderResponse.status || 'CREATED',
@@ -196,6 +221,9 @@ export default function RestaurantDetailPage({ cart = [], setCart, addToCart, up
     await initiateRazorpayCheckout({
       user,
       idempotencyKey: checkoutKey,
+      cart,
+      restaurantId,
+      cartPayload,
       onLoadingChange: (loading, msg) => {
         setOrderSubmitting(loading);
         setCheckoutStatusMsg(msg || '');
@@ -284,9 +312,7 @@ export default function RestaurantDetailPage({ cart = [], setCart, addToCart, up
     );
   }
 
-  const isOpen = restaurant.open !== undefined
-    ? Boolean(restaurant.open)
-    : (restaurant.status?.toLowerCase() === 'open');
+  // isOpen determined at top level of component
 
   const displayImage =
     restaurant.logoUrl ||
@@ -981,19 +1007,21 @@ export default function RestaurantDetailPage({ cart = [], setCart, addToCart, up
 
             <button
               className="btn-action"
-              disabled={!cart || cart.length === 0 || orderSubmitting || hasStaleCartIssues}
+              disabled={!cart || cart.length === 0 || orderSubmitting || hasStaleCartIssues || !isOpen}
               onClick={handleCheckout}
               style={{
-                opacity: (!cart || cart.length === 0 || orderSubmitting || hasStaleCartIssues) ? 0.6 : 1,
-                cursor: (!cart || cart.length === 0 || orderSubmitting || hasStaleCartIssues) ? 'not-allowed' : 'pointer',
-                background: (hasStaleCartIssues || orderSubmitting) ? '#64748b' : 'var(--primary-gradient)'
+                opacity: (!cart || cart.length === 0 || orderSubmitting || hasStaleCartIssues || !isOpen) ? 0.6 : 1,
+                cursor: (!cart || cart.length === 0 || orderSubmitting || hasStaleCartIssues || !isOpen) ? 'not-allowed' : 'pointer',
+                background: (hasStaleCartIssues || orderSubmitting || !isOpen) ? '#64748b' : 'var(--primary-gradient)'
               }}
             >
-              {orderSubmitting
-                ? (checkoutStatusMsg || 'Processing Order...')
-                : (hasStaleCartIssues 
-                    ? 'Please Adjust Quantities to Checkout' 
-                    : (paymentMethod === 'COD' ? 'Confirm Order (Cash on Delivery)' : 'Proceed to Payment & Checkout'))}
+              {!isOpen
+                ? 'Restaurant Currently Closed'
+                : (orderSubmitting
+                    ? (checkoutStatusMsg || 'Processing Order...')
+                    : (hasStaleCartIssues 
+                        ? 'Please Adjust Quantities to Checkout' 
+                        : (paymentMethod === 'COD' ? 'Confirm Order (Cash on Delivery)' : 'Proceed to Payment & Checkout')))}
             </button>
           </div>
         </div>

@@ -15,8 +15,10 @@ public interface OrderService {
     void clearCart(String userEmail);
     OrderResponse placeOrder(String userEmail);
     OrderResponse placeOrder(String userEmail, String idempotencyKey);
+    OrderResponse placeOrder(String userEmail, String idempotencyKey, com.smarteats.order.dto.CartSyncRequest cartRequest);
     OrderResponse placeCodOrder(String userEmail);
     OrderResponse placeCodOrder(String userEmail, String idempotencyKey);
+    OrderResponse placeCodOrder(String userEmail, String idempotencyKey, com.smarteats.order.dto.CartSyncRequest cartRequest);
     OrderResponse getOrderById(String orderId);
     OrderResponse getOrderById(String orderId, String userEmail, String roles);
     List<OrderResponse> getOrdersForCustomer(String userEmail);
@@ -25,6 +27,7 @@ public interface OrderService {
 
     PaymentOrderResponse createPaymentOrder(String userEmail);
     PaymentOrderResponse createPaymentOrder(String userEmail, String idempotencyKey);
+    PaymentOrderResponse createPaymentOrder(String userEmail, String idempotencyKey, com.smarteats.order.dto.CartSyncRequest cartRequest);
     PaymentVerifyResponse verifyPayment(String userEmail, PaymentVerifyRequest request);
     com.smarteats.order.dto.WebhookResponse processWebhook(String rawPayload, String signature);
     int expireStalePendingPaymentOrders();

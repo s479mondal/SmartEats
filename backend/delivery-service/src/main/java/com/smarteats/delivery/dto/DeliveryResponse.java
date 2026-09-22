@@ -20,6 +20,8 @@ public class DeliveryResponse {
     private String deliveryPartnerEmail;
     private String driverName;
     private String driverPhone;
+    private Boolean driverAvailable;
+    private Boolean driverActive;
     private DeliveryStatus status;
     private double restaurantLatitude;
     private double restaurantLongitude;

@@ -291,5 +291,25 @@ public class RestaurantServiceClient {
 
         return false;
     }
+
+    public String getRestaurantName(String restaurantId) {
+        if (restaurantId == null || restaurantId.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            String url = restaurantServiceUrl + "/api/restaurants/" + restaurantId.trim();
+            ResponseEntity<String> response = restTemplate.getForEntity(URI.create(url), String.class);
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                JsonNode root = objectMapper.readTree(response.getBody());
+                JsonNode dataNode = root.has("data") ? root.get("data") : root;
+                if (dataNode != null && dataNode.has("name") && !dataNode.get("name").isNull()) {
+                    return dataNode.get("name").asText();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get restaurant name for ID {}: {}", restaurantId, e.getMessage());
+        }
+        return null;
+    }
 }
 

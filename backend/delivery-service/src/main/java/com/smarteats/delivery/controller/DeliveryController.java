@@ -118,6 +118,35 @@ public class DeliveryController {
         return ResponseEntity.ok(ApiResponse.success(response, "Delivery status updated successfully"));
     }
 
+    @GetMapping("/offers")
+    public ResponseEntity<ApiResponse<List<com.smarteats.delivery.dto.DeliveryOfferResponse>>> getOffers(
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "DELIVERY_PARTNER");
+        List<com.smarteats.delivery.dto.DeliveryOfferResponse> list = deliveryService.getDriverOffers(email);
+        return ResponseEntity.ok(ApiResponse.success(list));
+    }
+
+    @PostMapping("/offers/{offerId}/accept")
+    public ResponseEntity<ApiResponse<DeliveryResponse>> acceptOffer(
+            @PathVariable String offerId,
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "DELIVERY_PARTNER");
+        DeliveryResponse response = deliveryService.acceptOffer(offerId, email);
+        return ResponseEntity.ok(ApiResponse.success(response, "Offer accepted successfully - delivery assigned"));
+    }
+
+    @PostMapping("/offers/{offerId}/reject")
+    public ResponseEntity<ApiResponse<Void>> rejectOffer(
+            @PathVariable String offerId,
+            @RequestHeader(value = "X-User-Email", required = false) String email,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        checkAuthAndRole(email, roles, "DELIVERY_PARTNER");
+        deliveryService.rejectOffer(offerId, email);
+        return ResponseEntity.ok(ApiResponse.success(null, "Offer rejected"));
+    }
+
     private void checkAuthAndRole(String email, String rolesHeader, String requiredRole) {
         if (email == null || email.isBlank()) {
             throw new UnauthorizedException("Authentication required: Missing user identity");

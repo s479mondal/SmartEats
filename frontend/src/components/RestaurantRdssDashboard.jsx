@@ -108,6 +108,12 @@ export default function RestaurantRdssDashboard() {
     fetchMenu();
     fetchOrders();
     fetchForecast();
+
+    const orderInterval = setInterval(() => {
+      fetchOrders();
+    }, 6000);
+
+    return () => clearInterval(orderInterval);
   }, []);
 
   const fetchProfile = async () => {
@@ -1070,48 +1076,130 @@ export default function RestaurantRdssDashboard() {
                       Items: {ord.items?.map(i => `${i.name} (x${i.quantity})`).join(', ') || 'N/A'}
                     </div>
 
-                    {/* Assigned Driver & Calling Info (Step 8.4B) */}
+                    {/* Assigned Driver & Real-Time GPS Tracking Info */}
                     {(() => {
                       const delivery = deliveriesByOrderId[ord.id];
-                      const hasAssignedDriver = delivery && (delivery.driverPhone || delivery.deliveryPartnerEmail);
+                      const hasAssignedDriver = delivery && (delivery.driverPhone || delivery.deliveryPartnerEmail || delivery.driverName);
                       if (hasAssignedDriver) {
+                        const hasGps = delivery.driverCurrentLatitude != null && delivery.driverCurrentLongitude != null;
+                        const mapsUrl = hasGps ? `https://www.google.com/maps?q=${delivery.driverCurrentLatitude},${delivery.driverCurrentLongitude}` : null;
+                        
+                        let gpsFreshness = 'Location pending GPS fix';
+                        if (delivery.driverLastLocationUpdate) {
+                          try {
+                            const updateTime = new Date(delivery.driverLastLocationUpdate).getTime();
+                            const diffSeconds = Math.floor((Date.now() - updateTime) / 1000);
+                            if (diffSeconds < 60) {
+                              gpsFreshness = 'GPS updated just now';
+                            } else if (diffSeconds < 3600) {
+                              gpsFreshness = `GPS updated ${Math.floor(diffSeconds / 60)}m ago`;
+                            } else {
+                              gpsFreshness = `GPS updated ${Math.floor(diffSeconds / 3600)}h ago`;
+                            }
+                          } catch {
+                            gpsFreshness = 'GPS recorded';
+                          }
+                        }
+
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '0.82rem', color: '#00f2fe', fontWeight: 600 }}>
-                              🛵 Driver: {delivery.driverName || delivery.deliveryPartnerEmail}
-                            </span>
-                            {cleanTelUri(delivery.driverPhone) ? (
-                              <a
-                                href={cleanTelUri(delivery.driverPhone)}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  background: 'rgba(34, 197, 94, 0.15)',
-                                  border: '1px solid rgba(34, 197, 94, 0.3)',
-                                  color: '#22c55e',
-                                  padding: '2px 8px',
-                                  borderRadius: '6px',
-                                  fontSize: '0.75rem',
-                                  fontWeight: 700,
-                                  textDecoration: 'none',
-                                  cursor: 'pointer'
-                                }}
-                                title={`Call driver at ${formatIndianPhone(delivery.driverPhone)}`}
-                              >
-                                📞 Call Driver
-                              </a>
-                            ) : (
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-sub)' }}>
-                                {delivery.driverPhone ? formatIndianPhone(delivery.driverPhone) : 'Driver phone not available'}
+                          <div style={{
+                            marginTop: '10px',
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            background: ord.status === 'READY' ? 'rgba(34, 197, 94, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                            border: ord.status === 'READY' ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.85rem', color: '#00f2fe', fontWeight: 700 }}>
+                                  🛵 Driver: {delivery.driverName || delivery.deliveryPartnerEmail}
+                                </span>
+                                {delivery.driverActive !== false ? (
+                                  <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.2)', color: '#22c55e', border: '1px solid rgba(34, 197, 94, 0.4)', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                    🟢 Online
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '0.72rem', background: 'rgba(148, 163, 184, 0.2)', color: '#94a3b8', border: '1px solid rgba(148, 163, 184, 0.4)', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                    ⚪ Offline
+                                  </span>
+                                )}
+                                {delivery.driverAvailable ? (
+                                  <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', padding: '2px 6px', borderRadius: '4px' }}>
+                                    Available
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '0.72rem', background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', padding: '2px 6px', borderRadius: '4px' }}>
+                                    🟡 Assigned / In Transit
+                                  </span>
+                                )}
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {cleanTelUri(delivery.driverPhone) && (
+                                  <a
+                                    href={cleanTelUri(delivery.driverPhone)}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      background: 'rgba(34, 197, 94, 0.2)',
+                                      border: '1px solid rgba(34, 197, 94, 0.4)',
+                                      color: '#22c55e',
+                                      padding: '4px 10px',
+                                      borderRadius: '6px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      textDecoration: 'none',
+                                      cursor: 'pointer'
+                                    }}
+                                    title={`Call driver at ${formatIndianPhone(delivery.driverPhone)}`}
+                                  >
+                                    📞 Call Driver
+                                  </a>
+                                )}
+                                {mapsUrl && (
+                                  <a
+                                    href={mapsUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      background: 'rgba(0, 242, 254, 0.2)',
+                                      border: '1px solid rgba(0, 242, 254, 0.4)',
+                                      color: '#00f2fe',
+                                      padding: '4px 10px',
+                                      borderRadius: '6px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      textDecoration: 'none',
+                                      cursor: 'pointer'
+                                    }}
+                                    title="View driver's live GPS on Google Maps"
+                                  >
+                                    🗺️ View Location
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.75rem', color: 'var(--text-sub)', flexWrap: 'wrap' }}>
+                              <span>
+                                📍 {hasGps ? `Current Location: ${Number(delivery.driverCurrentLatitude).toFixed(4)}, ${Number(delivery.driverCurrentLongitude).toFixed(4)}` : 'Location: Pending GPS beacon'}
+                                {delivery.driverLocationAccuracyMeters != null && hasGps ? ` (±${Math.round(delivery.driverLocationAccuracyMeters)}m)` : ''}
                               </span>
-                            )}
+                              <span>•</span>
+                              <span style={{ color: hasGps ? '#22c55e' : 'var(--text-sub)' }}>
+                                ⏱️ {gpsFreshness}
+                              </span>
+                            </div>
                           </div>
                         );
                       } else {
                         return (
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)', marginTop: '4px' }}>
-                            🛵 Driver: <span style={{ color: '#94a3b8' }}>Not assigned</span>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)', marginTop: '6px' }}>
+                            🛵 Driver: <span style={{ color: '#94a3b8' }}>Not assigned yet</span>
                           </div>
                         );
                       }

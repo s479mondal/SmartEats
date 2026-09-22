@@ -20,3 +20,11 @@ kafka:
     order-created: smarteats.order.created
     delivery-assigned: smarteats.delivery.assigned
     order-delivered: smarteats.order.delivered
+    order-ready: smarteats.order.ready
+    delivery-offer: smarteats.delivery.offer
+
+services:
+  delivery-service:
+    url: ${DELIVERY_SERVICE_URL:http://localhost:8084}
+  restaurant-service:
+    url: ${SERVICES_RESTAURANT_SERVICE_URL:http://localhost:8082}

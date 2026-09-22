@@ -1,12 +1,12 @@
 import apiClient from './axiosClient';
 
 export const orderApi = {
-  createPaymentOrder: async (idempotencyKey) => {
+  createPaymentOrder: async (idempotencyKey, cartPayload) => {
     const headers = {};
     if (idempotencyKey) {
       headers['Idempotency-Key'] = idempotencyKey;
     }
-    const response = await apiClient.post('/api/orders/payment/create-order', null, { headers });
+    const response = await apiClient.post('/api/orders/payment/create-order', cartPayload || null, { headers });
     return response.data?.data || response.data;
   },
 
@@ -15,12 +15,12 @@ export const orderApi = {
     return response.data?.data || response.data;
   },
 
-  placeCodOrder: async (idempotencyKey) => {
+  placeCodOrder: async (idempotencyKey, cartPayload) => {
     const headers = {};
     if (idempotencyKey) {
       headers['Idempotency-Key'] = idempotencyKey;
     }
-    const response = await apiClient.post('/api/orders/cod', null, { headers });
+    const response = await apiClient.post('/api/orders/cod', cartPayload || null, { headers });
     return response.data?.data || response.data;
   },
 
@@ -281,6 +281,21 @@ export const deliveryApi = {
 
   updatePartnerLocation: async (locationPayload) => {
     const response = await apiClient.post('/api/deliveries/partner/location', locationPayload);
+    return response.data?.data || response.data;
+  },
+
+  getOffers: async () => {
+    const response = await apiClient.get('/api/deliveries/offers');
+    return response.data?.data || response.data || [];
+  },
+
+  acceptOffer: async (offerId) => {
+    const response = await apiClient.post(`/api/deliveries/offers/${encodeURIComponent(offerId)}/accept`);
+    return response.data?.data || response.data;
+  },
+
+  rejectOffer: async (offerId) => {
+    const response = await apiClient.post(`/api/deliveries/offers/${encodeURIComponent(offerId)}/reject`);
     return response.data?.data || response.data;
   }
 };
